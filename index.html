@@ -5,6 +5,9 @@
 <title>Bloxd Code</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <style>
   body {
     margin: 0;
@@ -18,18 +21,20 @@
     padding: 60px 20px;
   }
   .wrap { max-width: 640px; width: 100%; }
-  h1 { font-size: 28px; margin-bottom: 4px; }
-  p.sub { color: #999; margin-top: 0; margin-bottom: 24px; }
+  h1 { font-size: 28px; margin-bottom: 24px; }
   nav { margin-bottom: 32px; display: flex; gap: 16px; }
-  nav a {
+  nav button {
+    background: none;
     color: #7aa2f7;
     text-decoration: none;
     font-size: 14px;
     border: 1px solid #2a2a2e;
     padding: 6px 12px;
     border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
   }
-  nav a:hover { background: #17171a; }
+  nav button:hover { background: #17171a; }
   .script {
     display: flex;
     justify-content: space-between;
@@ -40,24 +45,29 @@
     border-radius: 10px;
     margin-bottom: 12px;
   }
-  .script span { font-size: 15px; }
-  .script a.dl {
+  .script span {
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .script span:hover { color: #7aa2f7; }
+  .script .actions { display: flex; gap: 8px; }
+  .script a.dl, .script button.pv {
     background: #3b82f6;
     color: white;
     text-decoration: none;
     padding: 8px 14px;
     border-radius: 6px;
     font-size: 14px;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
   }
+  .script button.pv { background: #2a2a2e; }
   .script a.dl:hover { background: #2563eb; }
+  .script button.pv:hover { background: #35353b; }
 
-  /* --- License gate --- */
-  #site-content.locked {
-    filter: blur(6px);
-    pointer-events: none;
-    user-select: none;
-  }
-  #license-gate {
+  /* --- Shared overlay/modal --- */
+  .overlay {
     position: fixed;
     inset: 0;
     background: rgba(0,0,0,0.75);
@@ -67,19 +77,26 @@
     z-index: 1000;
     padding: 20px;
   }
-  #license-modal {
+  .modal {
     background: #17171a;
     border: 1px solid #2a2a2e;
     border-radius: 12px;
-    max-width: 600px;
+    max-width: 800px;
     width: 100%;
     padding: 28px;
     display: flex;
     flex-direction: column;
     max-height: 85vh;
   }
-  #license-modal h2 { margin-top: 0; font-size: 20px; }
-  #license-modal p.hint { color: #999; font-size: 13px; margin-top: 0; }
+  .modal h2 { margin-top: 0; font-size: 20px; }
+  .modal p.hint { color: #999; font-size: 13px; margin-top: 0; }
+
+  /* --- License gate --- */
+  #site-content.locked {
+    filter: blur(6px);
+    pointer-events: none;
+    user-select: none;
+  }
   #license-text {
     background: #0d0d0f;
     border: 1px solid #2a2a2e;
@@ -110,12 +127,69 @@
     cursor: pointer;
   }
   #ack-btn.enabled:hover { background: #2563eb; }
+
+  /* --- Preview modal --- */
+  #preview-overlay { display: none; }
+  #preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  #preview-header .close {
+    background: none;
+    border: none;
+    color: #999;
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  #preview-header .close:hover { color: #eaeaea; }
+  #preview-body {
+    overflow: auto;
+    border-radius: 8px;
+    background: #0d0d0f;
+    border: 1px solid #2a2a2e;
+  }
+  #preview-body pre {
+    margin: 0;
+    padding: 16px;
+  }
+  #preview-body code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 13px;
+  }
+  #preview-body.markdown {
+    padding: 20px 24px;
+    color: #ddd;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+  #preview-body.markdown h1,
+  #preview-body.markdown h2,
+  #preview-body.markdown h3 { color: #eaeaea; }
+  #preview-body.markdown a { color: #7aa2f7; }
+  #preview-body.markdown code {
+    background: #0d0d0f;
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  #preview-body.markdown pre {
+    background: #0d0d0f;
+    border: 1px solid #2a2a2e;
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  #preview-body.markdown pre code { background: none; padding: 0; }
+  #preview-body.markdown img { max-width: 100%; }
 </style>
 </head>
 <body>
 
-<div id="license-gate">
-  <div id="license-modal">
+<div id="license-gate" class="overlay">
+  <div class="modal">
     <h2>License Agreement</h2>
     <p class="hint">Please scroll to the bottom to continue.</p>
     <div id="license-text">Loading...</div>
@@ -123,29 +197,47 @@
   </div>
 </div>
 
+<div id="preview-overlay" class="overlay">
+  <div class="modal">
+    <div id="preview-header">
+      <h2 id="preview-title"></h2>
+      <button class="close" onclick="closePreview()">&#10005;</button>
+    </div>
+    <div id="preview-body"></div>
+  </div>
+</div>
+
 <div class="page">
   <div id="site-content" class="wrap locked">
     <h1>Bloxd Libs</h1>
-    <p class="sub">Scripts for Bloxd.io development.</p>
 
     <nav>
-      <a href="/README.md">README</a>
-      <a href="/LICENSE">License</a>
+      <button onclick="openMarkdown('/README.md', 'README')">README</button>
+      <button onclick="openText('/LICENSE', 'License')">License</button>
     </nav>
 
     <div class="script">
-      <span>KVStore.js</span>
-      <a class="dl" href="/KVStore.js" download>Download</a>
+      <span onclick="openCode('/KVStore.js', 'KVStore.js')">KVStore.js</span>
+      <div class="actions">
+        <button class="pv" onclick="openCode('/KVStore.js', 'KVStore.js')">Preview</button>
+        <a class="dl" href="/KVStore.js" download>Download</a>
+      </div>
     </div>
 
     <div class="script">
-      <span>MathLibGeometry.js</span>
-      <a class="dl" href="/MathLibGeometry.js" download>Download</a>
+      <span onclick="openCode('/MathLibGeometry.js', 'MathLibGeometry.js')">MathLibGeometry.js</span>
+      <div class="actions">
+        <button class="pv" onclick="openCode('/MathLibGeometry.js', 'MathLibGeometry.js')">Preview</button>
+        <a class="dl" href="/MathLibGeometry.js" download>Download</a>
+      </div>
     </div>
 
     <div class="script">
-      <span>MathLibLinear.js</span>
-      <a class="dl" href="/MathLibLinear.js" download>Download</a>
+      <span onclick="openCode('/MathLibLinear.js', 'MathLibLinear.js')">MathLibLinear.js</span>
+      <div class="actions">
+        <button class="pv" onclick="openCode('/MathLibLinear.js', 'MathLibLinear.js')">Preview</button>
+        <a class="dl" href="/MathLibLinear.js" download>Download</a>
+      </div>
     </div>
   </div>
 </div>
@@ -180,6 +272,79 @@
       gate.remove();
       content.classList.remove('locked');
     });
+  }
+
+  marked.setOptions({
+    highlight: function(code, lang) {
+      if (lang && hljs.getLanguage(lang)) {
+        return hljs.highlight(code, { language: lang }).value;
+      }
+      return hljs.highlightAuto(code).value;
+    }
+  });
+
+  const previewOverlay = document.getElementById('preview-overlay');
+  const previewTitle = document.getElementById('preview-title');
+  const previewBody = document.getElementById('preview-body');
+
+  function showPreview() { previewOverlay.style.display = 'flex'; }
+
+  function closePreview() { previewOverlay.style.display = 'none'; }
+
+  previewOverlay.addEventListener('click', (e) => {
+    if (e.target === previewOverlay) closePreview();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closePreview();
+  });
+
+  function openCode(url, title) {
+    previewTitle.innerText = title;
+    previewBody.className = '';
+    previewBody.innerHTML = '<pre><code class="language-javascript">Loading...</code></pre>';
+    showPreview();
+    fetch(url)
+      .then(r => r.text())
+      .then(text => {
+        const codeEl = document.createElement('code');
+        codeEl.className = 'language-javascript';
+        codeEl.textContent = text;
+        const preEl = document.createElement('pre');
+        preEl.appendChild(codeEl);
+        previewBody.innerHTML = '';
+        previewBody.appendChild(preEl);
+        hljs.highlightElement(codeEl);
+      })
+      .catch(() => { previewBody.innerHTML = 'Could not load file.'; });
+  }
+
+  function openMarkdown(url, title) {
+    previewTitle.innerText = title;
+    previewBody.className = 'markdown';
+    previewBody.innerHTML = 'Loading...';
+    showPreview();
+    fetch(url)
+      .then(r => r.text())
+      .then(text => { previewBody.innerHTML = marked.parse(text); })
+      .catch(() => { previewBody.innerHTML = 'Could not load file.'; });
+  }
+
+  function openText(url, title) {
+    previewTitle.innerText = title;
+    previewBody.className = '';
+    previewBody.innerHTML = '<pre><code>Loading...</code></pre>';
+    showPreview();
+    fetch(url)
+      .then(r => r.text())
+      .then(text => {
+        previewBody.innerHTML = '';
+        const preEl = document.createElement('pre');
+        const codeEl = document.createElement('code');
+        codeEl.textContent = text;
+        preEl.appendChild(codeEl);
+        previewBody.appendChild(preEl);
+      })
+      .catch(() => { previewBody.innerHTML = 'Could not load file.'; });
   }
 </script>
 
