@@ -11,6 +11,8 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: #0d0d0f;
     color: #eaeaea;
+  }
+  .page {
     display: flex;
     justify-content: center;
     padding: 60px 20px;
@@ -48,32 +50,138 @@
     font-size: 14px;
   }
   .script a.dl:hover { background: #2563eb; }
+
+  /* --- License gate --- */
+  #site-content.locked {
+    filter: blur(6px);
+    pointer-events: none;
+    user-select: none;
+  }
+  #license-gate {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  #license-modal {
+    background: #17171a;
+    border: 1px solid #2a2a2e;
+    border-radius: 12px;
+    max-width: 600px;
+    width: 100%;
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
+  }
+  #license-modal h2 { margin-top: 0; font-size: 20px; }
+  #license-modal p.hint { color: #999; font-size: 13px; margin-top: 0; }
+  #license-text {
+    background: #0d0d0f;
+    border: 1px solid #2a2a2e;
+    border-radius: 8px;
+    padding: 16px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #ccc;
+    flex: 1;
+    margin-bottom: 16px;
+  }
+  #ack-btn {
+    background: #3a3a3e;
+    color: #888;
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 15px;
+    cursor: not-allowed;
+    transition: background 0.2s, color 0.2s;
+  }
+  #ack-btn.enabled {
+    background: #3b82f6;
+    color: white;
+    cursor: pointer;
+  }
+  #ack-btn.enabled:hover { background: #2563eb; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Bloxd Libs</h1>
-  <p class="sub">Scripts for Bloxd.io development.</p>
 
-  <nav>
-    <a href="/readme.html">README</a>
-    <a href="/license.html">License</a>
-  </nav>
-
-  <div class="script">
-    <span>KVStore.js</span>
-    <a class="dl" href="/KVStore.js" download>Download</a>
-  </div>
-
-  <div class="script">
-    <span>MathLibGeometry.js</span>
-    <a class="dl" href="/MathLibGeometry.js" download>Download</a>
-  </div>
-
-  <div class="script">
-    <span>MathLibLinear.js</span>
-    <a class="dl" href="/MathLibLinear.js" download>Download</a>
+<div id="license-gate">
+  <div id="license-modal">
+    <h2>License Agreement</h2>
+    <p class="hint">Please scroll to the bottom to continue.</p>
+    <div id="license-text">Loading...</div>
+    <button id="ack-btn" disabled>Scroll to bottom to continue</button>
   </div>
 </div>
+
+<div class="page">
+  <div id="site-content" class="wrap locked">
+    <h1>Bloxd Libs</h1>
+    <p class="sub">Scripts for Bloxd.io development.</p>
+
+    <nav>
+      <a href="/README.md">README</a>
+      <a href="/LICENSE">License</a>
+    </nav>
+
+    <div class="script">
+      <span>KVStore.js</span>
+      <a class="dl" href="/KVStore.js" download>Download</a>
+    </div>
+
+    <div class="script">
+      <span>MathLibGeometry.js</span>
+      <a class="dl" href="/MathLibGeometry.js" download>Download</a>
+    </div>
+
+    <div class="script">
+      <span>MathLibLinear.js</span>
+      <a class="dl" href="/MathLibLinear.js" download>Download</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  const gate = document.getElementById('license-gate');
+  const content = document.getElementById('site-content');
+  const textBox = document.getElementById('license-text');
+  const ackBtn = document.getElementById('ack-btn');
+
+  if (localStorage.getItem('licenseAcknowledged') === 'true') {
+    gate.remove();
+    content.classList.remove('locked');
+  } else {
+    fetch('/LICENSE')
+      .then(r => r.text())
+      .then(text => { textBox.innerText = text; })
+      .catch(() => { textBox.innerText = 'Could not load license text.'; });
+
+    textBox.addEventListener('scroll', () => {
+      const atBottom = textBox.scrollTop + textBox.clientHeight >= textBox.scrollHeight - 5;
+      if (atBottom) {
+        ackBtn.disabled = false;
+        ackBtn.classList.add('enabled');
+        ackBtn.innerText = 'I Acknowledge';
+      }
+    });
+
+    ackBtn.addEventListener('click', () => {
+      if (ackBtn.disabled) return;
+      localStorage.setItem('licenseAcknowledged', 'true');
+      gate.remove();
+      content.classList.remove('locked');
+    });
+  }
+</script>
+
 </body>
 </html>
