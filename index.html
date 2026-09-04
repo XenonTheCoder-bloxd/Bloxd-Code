@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <link rel="icon" type="image/png" href="/favicon.png">
 <meta charset="UTF-8">
 <title>Bloxd Libs</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/favicon.png">
 <style>
   body {
     margin: 0;
@@ -17,7 +17,17 @@
   }
   .wrap { max-width: 640px; width: 100%; }
   h1 { font-size: 28px; margin-bottom: 4px; }
-  p.sub { color: #999; margin-top: 0; margin-bottom: 32px; }
+  p.sub { color: #999; margin-top: 0; margin-bottom: 24px; }
+  nav { margin-bottom: 32px; display: flex; gap: 16px; }
+  nav a {
+    color: #7aa2f7;
+    text-decoration: none;
+    font-size: 14px;
+    border: 1px solid #2a2a2e;
+    padding: 6px 12px;
+    border-radius: 6px;
+  }
+  nav a:hover { background: #17171a; }
   .script {
     display: flex;
     justify-content: space-between;
@@ -29,7 +39,7 @@
     margin-bottom: 12px;
   }
   .script span { font-size: 15px; }
-  .script a {
+  .script a.dl {
     background: #3b82f6;
     color: white;
     text-decoration: none;
@@ -37,7 +47,7 @@
     border-radius: 6px;
     font-size: 14px;
   }
-  .script a:hover { background: #2563eb; }
+  .script a.dl:hover { background: #2563eb; }
 </style>
 </head>
 <body>
@@ -45,19 +55,24 @@
   <h1>Bloxd Libs</h1>
   <p class="sub">Scripts for Bloxd.io development.</p>
 
+  <nav>
+    <a href="/readme.html">README</a>
+    <a href="/license.html">License</a>
+  </nav>
+
   <div class="script">
     <span>KVStore.js</span>
-    <a href="/KVStore.js" download>Download</a>
+    <a class="dl" href="/KVStore.js" download>Download</a>
   </div>
 
   <div class="script">
     <span>MathLibGeometry.js</span>
-    <a href="/MathLibGeometry.js" download>Download</a>
+    <a class="dl" href="/MathLibGeometry.js" download>Download</a>
   </div>
 
   <div class="script">
     <span>MathLibLinear.js</span>
-    <a href="/MathLibLinear.js" download>Download</a>
+    <a class="dl" href="/MathLibLinear.js" download>Download</a>
   </div>
 </div>
 </body>
