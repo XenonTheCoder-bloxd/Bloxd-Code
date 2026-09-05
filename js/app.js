@@ -68,6 +68,22 @@
   try {
     if (window.firebase) {
       firebase.initializeApp(firebaseConfig);
+
+      // App Check: proves requests are coming from this actual site (via
+      // reCAPTCHA v3, invisible to real visitors) rather than a script
+      // hitting the Firebase API directly - the main thing standing between
+      // "anyone can sign up" and "anyone can sign up 10,000 times in a loop".
+      // RECAPTCHA_V3_SITE_KEY needs to be swapped for the real site key from
+      // the reCAPTCHA admin console before this does anything - see the
+      // setup steps that go with this change.
+      try {
+        if (firebase.appCheck) {
+          firebase.appCheck().activate("6Lc0qKstAAAAAFOKRy__z9cSvJNJRznn5mSCs3Bm", true);
+        }
+      } catch (e) {
+        console.warn("App Check failed to activate:", e);
+      }
+
       auth = firebase.auth();
       db = firebase.firestore();
 
@@ -845,7 +861,13 @@
     if (cInput) cInput.value = p.customCode || "";
 
     const debugToggle = document.getElementById("studio-debug-toggle");
-    if (debugToggle) debugToggle.checked = !!p.debugMode;
+    if (debugToggle) {
+      debugToggle.checked = !!userProfile?.debugMode;
+      debugToggle.onchange = () => {
+        saveUserProfileData({ debugMode: debugToggle.checked });
+        if (typeof window.__refreshDebugButton === "function") window.__refreshDebugButton();
+      };
+    }
 
     paintBg(document.getElementById("stage-bg-layer"), p.portfolioBg);
 
@@ -1206,18 +1228,14 @@
           const avatar = document.getElementById("studio-avatar-input")?.value?.trim();
           const discord = document.getElementById("studio-discord-input")?.value;
           const github = document.getElementById("studio-github-input")?.value;
-          const debugMode = !!document.getElementById("studio-debug-toggle")?.checked;
-
           if (newUsername && newUsername.toLowerCase() !== userProfile.username.toLowerCase()) {
             await updateUsernameWithCooldown(newUsername);
           }
 
           saveUserProfileData({
             avatar: avatar || userProfile.avatar,
-            socials: { discord, github },
-            debugMode
+            socials: { discord, github }
           });
-          if (typeof window.__refreshDebugButton === "function") window.__refreshDebugButton();
 
           document.getElementById("studio-settings-pop").style.display = "none";
           showToast("Settings saved!", "success");
@@ -1480,8 +1498,12 @@
   let forumCategory = "all";
   let dashboardCategory = "all";
 
+  let communityCodes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]");
+  if (!Array.isArray(communityCodes)) communityCodes = [];
+
   function initForum() {
     renderForumFeed();
+    subscribeForumPosts();
     setupForum();
   }
 
@@ -1558,8 +1580,10 @@
       return;
     }
 
-    feed.innerHTML = filtered.map(p => `
-      <div class="forum-post-card">
+    feed.innerHTML = filtered.map(p => {
+      const canDelete = (currentUser && p.uid && p.uid === currentUser.uid) || isAdminUser;
+      return `
+      <div class="forum-post-card" data-post-id="${escapeHtml(p.id)}">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
           <div style="display:flex;align-items:center;gap:10px;">
             <img src="https://api.dicebear.com/7.x/bottts/svg?seed=${p.author}" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--border-color);">
@@ -1568,16 +1592,49 @@
               <span style="font-size:11px;color:var(--text-dim);margin-left:6px;">${new Date(p.timestamp).toLocaleDateString()}</span>
             </div>
           </div>
-          <span class="nav-badge">${(p.category || "GENERAL").toUpperCase()}</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="nav-badge">${(p.category || "GENERAL").toUpperCase()}</span>
+            ${canDelete ? `<button type="button" data-delete-post title="Delete" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:13px;padding:2px 4px;"><i class="fa-solid fa-trash"></i></button>` : ""}
+          </div>
         </div>
         <h3 style="font-size:15.5px;color:#fff;margin-bottom:8px;">${escapeHtml(p.title)}</h3>
         <div style="font-size:13.5px;color:var(--text-muted);line-height:1.6;">${parseCodeInPost(p.content)}</div>
         ${p.mediaUrl ? `<img src="${escapeHtml(p.mediaUrl)}" style="max-width:100%;max-height:300px;border-radius:6px;margin-top:12px;border:1px solid var(--border-color);">` : ""}
       </div>
-    `).join("");
+    `;
+    }).join("");
+  }
+
+  function deleteForumPost(postId) {
+    const post = forumPosts.find((p) => p.id === postId);
+    if (!post) return;
+    if (!confirm("Delete this discussion? This can't be undone.")) return;
+
+    forumPosts = forumPosts.filter((p) => p.id !== postId);
+    localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
+    renderForumFeed();
+    renderDashboard();
+
+    if (db && firestoreOnline && post.docId) {
+      db.collection("forum_posts").doc(post.docId).delete().catch((err) => {
+        console.warn("Failed to delete post from Firestore:", err);
+        showToast("Deleted locally, but couldn't remove it from the server.", "error");
+      });
+    }
   }
 
   function setupForum() {
+    const forumFeedEl = document.getElementById("forum-posts-feed");
+    if (forumFeedEl && !forumFeedEl.dataset.deleteWired) {
+      forumFeedEl.dataset.deleteWired = "1";
+      forumFeedEl.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-delete-post]");
+        if (!btn) return;
+        const card = btn.closest("[data-post-id]");
+        if (card) deleteForumPost(card.getAttribute("data-post-id"));
+      });
+    }
+
     document.querySelectorAll(".category-tab").forEach(tab => {
       tab.onclick = () => {
         document.querySelectorAll(".category-tab").forEach(t => t.classList.remove("active"));
@@ -1618,6 +1675,7 @@
 
         const newPost = {
           id: "post_" + Date.now(),
+          uid: currentUser?.uid || "",
           author: userProfile?.username || "Anonymous",
           title,
           category,
@@ -1644,6 +1702,22 @@
     forumPosts.unshift(newPost);
     localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
 
+    // This used to be the only place a post was stored - purely per-browser,
+    // which is why nobody else ever saw a post you made. The local write
+    // above stays for instant/offline feedback; this is what actually makes
+    // it visible to everyone else. subscribeForumPosts()'s onSnapshot below
+    // reconciles forumPosts with the real canonical list shortly after.
+    if (db && firestoreOnline) {
+      db.collection("forum_posts").add(newPost).then((ref) => {
+        // Remember the real Firestore doc id so this exact post can be
+        // deleted later by id lookup instead of a where() query every time.
+        ref.update({ docId: ref.id }).catch(() => {});
+      }).catch((err) => {
+        console.warn("Failed to publish discussion to Firestore:", err);
+        showToast("Saved locally, but couldn't publish for others to see - check your connection.", "error");
+      });
+    }
+
     document.getElementById("new-post-title").value = "";
     document.getElementById("new-post-content").value = "";
     if (document.getElementById("new-post-media-file")) document.getElementById("new-post-media-file").value = "";
@@ -1656,6 +1730,29 @@
     btn.disabled = false;
     btn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Publish Discussion`;
     showToast("Discussion published!", "success");
+  }
+
+  let forumUnsub = null;
+  function subscribeForumPosts() {
+    if (!db || !firestoreOnline || forumUnsub) return;
+    try {
+      forumUnsub = db.collection("forum_posts")
+        .orderBy("timestamp", "desc")
+        .limit(200)
+        .onSnapshot((snap) => {
+          const live = snap.docs.map((d) => d.data());
+          if (live.length) {
+            forumPosts = live;
+            localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
+            renderForumFeed();
+            renderDashboard();
+          }
+        }, (err) => {
+          console.warn("Forum sync error:", err);
+        });
+    } catch (e) {
+      console.warn("Failed to subscribe to forum posts:", e);
+    }
   }
 
   
@@ -1677,14 +1774,27 @@
 
   function renderDashboard() {
     
-    const codes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]");
-    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
+    const codes = communityCodes;
 
     const codesCountEl = document.getElementById("stat-codes-count");
     if (codesCountEl) codesCountEl.textContent = codes.length;
 
+    // "Registered Developers" used to count the local per-browser cache of
+    // whichever profiles you personally happened to view - never the real
+    // total. Query the actual users collection instead.
     const devsCountEl = document.getElementById("stat-devs-count");
-    if (devsCountEl) devsCountEl.textContent = Object.keys(registry).length;
+    if (devsCountEl) {
+      if (db && firestoreOnline) {
+        db.collection("users").get().then((snap) => {
+          devsCountEl.textContent = snap.size;
+        }).catch((err) => {
+          console.warn("Failed to load developer count:", err);
+        });
+      } else {
+        const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
+        devsCountEl.textContent = Object.keys(registry).length;
+      }
+    }
 
     const xpCountEl = document.getElementById("stat-xp-count");
     if (xpCountEl) xpCountEl.textContent = (userProfile?.stats?.xp || 0) + " XP";
@@ -1703,7 +1813,7 @@
     const container = document.getElementById("dashboard-codes-stream");
     if (!container) return;
 
-    const allCodes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]");
+    const allCodes = communityCodes;
     const filtered = dashboardCategory === "all"
       ? allCodes
       : allCodes.filter(c => c.category === dashboardCategory);
@@ -1959,9 +2069,8 @@
     delete registry[key];
     localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
 
-    const codes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]")
-      .filter(c => String(c.author || "").toLowerCase() !== key);
-    localStorage.setItem("bloxd_community_codes", JSON.stringify(codes));
+    communityCodes = communityCodes.filter(c => String(c.author || "").toLowerCase() !== key);
+    localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
 
     forumPosts = forumPosts.filter(p => String(p.author || "").toLowerCase() !== key);
     localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
@@ -1976,6 +2085,13 @@
         if (target && target.uid) {
           db.collection("users").doc(target.uid).delete().catch(() => {});
         }
+        // These two used to only get scrubbed from the local cache - their
+        // actual Firestore copies survived, so deleting someone's profile
+        // didn't really delete their posts/codes for anyone else.
+        const theirPosts = await db.collection("forum_posts").where("author", "==", key).get();
+        theirPosts.forEach(d => d.ref.delete().catch(() => {}));
+        const theirCodes = await db.collection("community_codes").where("author", "==", key).get();
+        theirCodes.forEach(d => d.ref.delete().catch(() => {}));
       } catch (e) {}
     }
 
@@ -2594,7 +2710,7 @@
   let activeCodesCategory = "all";
 
   function initCodes() {
-    
+    subscribeCommunityCodes();
     document.querySelectorAll("#codes-category-bar .category-chip").forEach(chip => {
       chip.onclick = () => {
         document.querySelectorAll("#codes-category-bar .category-chip").forEach(c => c.classList.remove("active"));
@@ -2612,7 +2728,7 @@
     const container = document.getElementById("codes-grid-container");
     if (!container) return;
 
-    const allCodes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]");
+    const allCodes = communityCodes;
     const filtered = category === "all" ? allCodes : allCodes.filter(c => c.category === category);
 
     if (filtered.length === 0) {
@@ -2629,7 +2745,9 @@
       return;
     }
 
-    container.innerHTML = filtered.map(c => `
+    container.innerHTML = filtered.map(c => {
+      const canDelete = (currentUser && c.uid && c.uid === currentUser.uid) || isAdminUser;
+      return `
       <div class="code-item-card">
         ${c.image ? `<div class="code-item-banner"><img src="${escapeHtml(c.image)}" alt="${escapeHtml(c.title)}" style="width:100%;height:100%;object-fit:cover;border-radius:6px 6px 0 0;"></div>` : ""}
         <div class="code-item-content">
@@ -2647,10 +2765,53 @@
             <button class="btn btn-primary" style="font-size:12px;padding:4px 10px;" onclick="window.copyCodeEntry('${c.id}')">
               <i class="fa-regular fa-copy"></i> Copy
             </button>
+            ${canDelete ? `<button class="btn btn-secondary" style="font-size:12px;padding:4px 10px;color:#ff8888;" onclick="window.deleteCodeEntry('${c.id}')"><i class="fa-solid fa-trash"></i></button>` : ""}
           </div>
         </div>
       </div>
-    `).join("");
+    `;
+    }).join("");
+  }
+
+  window.deleteCodeEntry = function(id) {
+    const entry = communityCodes.find((c) => c.id === id);
+    if (!entry) return;
+    if (!confirm("Delete this code? This can't be undone.")) return;
+
+    communityCodes = communityCodes.filter((c) => c.id !== id);
+    localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
+    renderCodesGrid(activeCodesCategory);
+    renderDashboard();
+
+    if (db && firestoreOnline && entry.docId) {
+      db.collection("community_codes").doc(entry.docId).delete().catch((err) => {
+        console.warn("Failed to delete code from Firestore:", err);
+        showToast("Deleted locally, but couldn't remove it from the server.", "error");
+      });
+    }
+  };
+
+  let codesUnsub = null;
+  function subscribeCommunityCodes() {
+    if (!db || !firestoreOnline || codesUnsub) return;
+    try {
+      codesUnsub = db.collection("community_codes")
+        .orderBy("timestamp", "desc")
+        .limit(200)
+        .onSnapshot((snap) => {
+          const live = snap.docs.map((d) => d.data());
+          if (live.length) {
+            communityCodes = live;
+            localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
+            renderCodesGrid(activeCodesCategory);
+            renderDashboard();
+          }
+        }, (err) => {
+          console.warn("Codes sync error:", err);
+        });
+    } catch (e) {
+      console.warn("Failed to subscribe to community codes:", e);
+    }
   }
 
   function setupUploadCodeModal() {
@@ -2690,6 +2851,7 @@
 
         const entry = {
           id: "code_" + Date.now(),
+          uid: currentUser?.uid || "",
           author: userProfile?.username || "Anonymous",
           title,
           description,
@@ -2715,9 +2877,18 @@
   }
 
   function finalizeCodeUpload(entry, btn, modal) {
-    const allCodes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]");
+    const allCodes = communityCodes;
     allCodes.unshift(entry);
     localStorage.setItem("bloxd_community_codes", JSON.stringify(allCodes));
+
+    if (db && firestoreOnline) {
+      db.collection("community_codes").add(entry).then((ref) => {
+        ref.update({ docId: ref.id }).catch(() => {});
+      }).catch((err) => {
+        console.warn("Failed to publish code to Firestore:", err);
+        showToast("Saved locally, but couldn't publish for others to see - check your connection.", "error");
+      });
+    }
 
     
     ["upload-code-title","upload-code-description","upload-code-textarea"].forEach(id => {
@@ -2739,7 +2910,7 @@
   }
 
   window.viewCodeEntry = function(id) {
-    const allCodes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]");
+    const allCodes = communityCodes;
     const entry = allCodes.find(c => c.id === id);
     if (!entry) return;
 
@@ -2758,7 +2929,7 @@
   };
 
   window.copyCodeEntry = function(id) {
-    const allCodes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]");
+    const allCodes = communityCodes;
     const entry = allCodes.find(c => c.id === id);
     if (!entry) return;
     navigator.clipboard.writeText(entry.code).then(() => {
