@@ -308,6 +308,11 @@ input, textarea, select, pre, code, [contenteditable="true"] {
   flex: 1;
   padding: 12px 8px;
   overflow-y: auto;
+  /* Setting only overflow-y (without overflow-x) makes the browser treat
+     overflow-x as "auto" too, per spec - not "visible" like you'd expect.
+     That's what let a couple px of bold-text overflow from the active nav
+     item flash a horizontal scrollbar here. Pin it to hidden explicitly. */
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 2px;
