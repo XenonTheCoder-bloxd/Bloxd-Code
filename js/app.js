@@ -1,5 +1,3 @@
- 
-
 (function() {
   'use strict';
 
@@ -170,7 +168,10 @@
     if (clean.startsWith("-") || clean.endsWith("-") || clean.startsWith("_") || clean.endsWith("_")) {
       return { valid: false, error: "Username cannot start or end with a hyphen or underscore." };
     }
-    if (RESERVED_USERNAMES.includes(clean)) return { valid: false, error: "This username is reserved." };
+    // Claude Security Patch: block admin usernames too, not just the generic reserved list
+    if (RESERVED_USERNAMES.includes(clean) || ADMIN_USERNAMES.map(a => a.toLowerCase()).includes(clean)) {
+      return { valid: false, error: "This username is reserved." };
+    }
     if (containsProfanity(clean)) return { valid: false, error: "Username contains inappropriate language." };
     return { valid: true, username: clean };
   }
@@ -384,7 +385,7 @@
     const val = normalizeBg(src);
     if (isVideoSource(val)) {
       layer.style.backgroundImage = "none";
-      layer.innerHTML = `<video src="${val}" autoplay loop muted playsinline class="portfolio-bg-video"></video>`;
+      layer.innerHTML = `<video src="${escapeHtml(val)}" autoplay loop muted playsinline class="portfolio-bg-video"></video>`;
     } else if (isGradientBg(val)) {
       layer.innerHTML = "";
       layer.style.backgroundImage = val;
@@ -430,9 +431,9 @@
     const circle = document.getElementById("avatar-crop-circle");
     if (!circle || !pendingAvatarSrc) return;
     if (isVideoSource(pendingAvatarSrc)) {
-      circle.innerHTML = `<video src="${pendingAvatarSrc}" autoplay loop muted playsinline style="${avatarImgStyle()}"></video>`;
+      circle.innerHTML = `<video src="${escapeHtml(pendingAvatarSrc)}" autoplay loop muted playsinline style="${avatarImgStyle()}"></video>`;
     } else {
-      circle.innerHTML = `<img src="${pendingAvatarSrc}" draggable="false" style="${avatarImgStyle()}">`;
+      circle.innerHTML = `<img src="${escapeHtml(pendingAvatarSrc)}" draggable="false" style="${avatarImgStyle()}">`;
     }
   }
 
@@ -694,9 +695,9 @@
     if (avatarContainer) {
       const avatarSrc = userProfile.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${userProfile.username}`;
       if (isVideoSource(avatarSrc)) {
-        avatarContainer.innerHTML = `<video src="${avatarSrc}" autoplay loop muted playsinline class="portfolio-clean-avatar" style="${avatarImgStyle()}"></video>`;
+        avatarContainer.innerHTML = `<video src="${escapeHtml(avatarSrc)}" autoplay loop muted playsinline class="portfolio-clean-avatar" style="${avatarImgStyle()}"></video>`;
       } else {
-        avatarContainer.innerHTML = `<img src="${avatarSrc}" class="portfolio-clean-avatar" alt="Avatar" draggable="false" style="${avatarImgStyle()}">`;
+        avatarContainer.innerHTML = `<img src="${escapeHtml(avatarSrc)}" class="portfolio-clean-avatar" alt="Avatar" draggable="false" style="${avatarImgStyle()}">`;
       }
     }
 
@@ -958,9 +959,9 @@
         const container = document.getElementById("stage-avatar-container");
         if (container && val) {
           if (isVideoSource(val)) {
-            container.innerHTML = `<video src="${val}" autoplay loop muted playsinline class="portfolio-clean-avatar" style="${avatarImgStyle()}"></video>`;
+            container.innerHTML = `<video src="${escapeHtml(val)}" autoplay loop muted playsinline class="portfolio-clean-avatar" style="${avatarImgStyle()}"></video>`;
           } else {
-            container.innerHTML = `<img src="${val}" class="portfolio-clean-avatar" alt="Avatar" draggable="false" style="${avatarImgStyle()}">`;
+            container.innerHTML = `<img src="${escapeHtml(val)}" class="portfolio-clean-avatar" alt="Avatar" draggable="false" style="${avatarImgStyle()}">`;
           }
         }
       };
@@ -1258,8 +1259,11 @@
   function parseCodeInPost(content) {
     if (!content) return "";
     let codeCounter = 0;
+    const codeBlocks = [];
 
-    let parsed = content.replace(/```(?:([a-zA-Z0-9_-]+)\n)?([\s\S]*?)```/g, (match, lang, code) => {
+    // Claude Security Patch: pull code fences out into placeholders first, so the
+    // surrounding prose can be safely escaped without double-escaping the code HTML.
+    let withPlaceholders = content.replace(/```(?:([a-zA-Z0-9_-]+)\n)?([\s\S]*?)```/g, (match, lang, code) => {
       lang = lang ? lang.toLowerCase() : "javascript";
       codeCounter++;
       const codeId = "code_block_" + codeCounter + "_" + Date.now();
@@ -1273,10 +1277,10 @@
         }
       }
 
-      return `
+      const html = `
         <div class="code-box-container">
           <div class="code-box-header">
-            <span>${lang.toUpperCase()}</span>
+            <span>${escapeHtml(lang.toUpperCase())}</span>
             <button class="btn btn-secondary" style="font-size:11px;padding:2px 6px;" onclick="window.copyCodeSnippet('${codeId}')">
               <i class="fa-regular fa-copy"></i> Copy
             </button>
@@ -1284,9 +1288,19 @@
           <pre class="code-box-pre"><code id="${codeId}" class="language-${lang}">${highlighted}</code></pre>
         </div>
       `;
+      const placeholder = "\u0000CODEBLOCK" + (codeBlocks.length) + "\u0000";
+      codeBlocks.push(html);
+      return placeholder;
     });
 
-    return parsed.replace(/\n(?!(?:<\/pre>|<\/div>|<div))/g, "<br>");
+    // Claude Security Patch: escape whatever text remains (previously inserted raw into innerHTML)
+    let escaped = escapeHtml(withPlaceholders).replace(/\n(?!(?:<\/pre>|<\/div>|<div))/g, "<br>");
+
+    codeBlocks.forEach((html, i) => {
+      escaped = escaped.replace("\u0000CODEBLOCK" + i + "\u0000", html);
+    });
+
+    return escaped;
   }
 
   window.copyCodeSnippet = function(id) {
@@ -1329,7 +1343,7 @@
         </div>
         <h3 style="font-size:15.5px;color:#fff;margin-bottom:8px;">${escapeHtml(p.title)}</h3>
         <div style="font-size:13.5px;color:var(--text-muted);line-height:1.6;">${parseCodeInPost(p.content)}</div>
-        ${p.mediaUrl ? `<img src="${p.mediaUrl}" style="max-width:100%;max-height:300px;border-radius:6px;margin-top:12px;border:1px solid var(--border-color);">` : ""}
+        ${p.mediaUrl ? `<img src="${escapeHtml(p.mediaUrl)}" style="max-width:100%;max-height:300px;border-radius:6px;margin-top:12px;border:1px solid var(--border-color);">` : ""}
       </div>
     `).join("");
   }
@@ -1478,7 +1492,7 @@
 
     container.innerHTML = recent.map(c => `
       <div class="code-item-card" style="margin-bottom:14px;">
-        ${c.image ? `<div class="code-item-banner"><img src="${c.image}" alt="${escapeHtml(c.title)}" style="width:100%;height:100%;object-fit:cover;"></div>` : ""}
+        ${c.image ? `<div class="code-item-banner"><img src="${escapeHtml(c.image)}" alt="${escapeHtml(c.title)}" style="width:100%;height:100%;object-fit:cover;"></div>` : ""}
         <div class="code-item-content">
           <div class="code-item-meta">
             <img src="https://api.dicebear.com/7.x/bottts/svg?seed=${escapeHtml(c.author)}" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border-color);">
@@ -1524,7 +1538,7 @@
         </div>
         <h4 style="font-size:14.5px;color:#fff;margin-bottom:6px;font-weight:600;">${escapeHtml(p.title)}</h4>
         <div style="font-size:12.5px;color:var(--text-muted);line-height:1.5;">${parseCodeInPost(p.content)}</div>
-        ${p.mediaUrl ? `<img src="${p.mediaUrl}" style="max-width:100%;max-height:220px;border-radius:6px;margin-top:10px;border:1px solid var(--border-color);">` : ""}
+        ${p.mediaUrl ? `<img src="${escapeHtml(p.mediaUrl)}" style="max-width:100%;max-height:220px;border-radius:6px;margin-top:10px;border:1px solid var(--border-color);">` : ""}
       </div>
     `).join("");
   }
@@ -1566,8 +1580,8 @@
       <div class="dev-creator-mini-card" onclick="window.openDevProfile('${c.username}')" style="cursor:pointer;" title="View ${escapeHtml(c.username)}'s portfolio">
         <div class="creator-avatar-thumb" style="overflow:hidden;display:flex;align-items:center;justify-content:center;background:#111;">
           ${isVideoSource(c.avatar) ?
-            `<video src="${c.avatar}" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;object-position:${c.avatarPosX}% ${c.avatarPosY}%;transform:scale(${c.avatarZoom});"></video>` :
-            `<img src="${c.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${c.username}`}" style="width:100%;height:100%;object-fit:cover;object-position:${c.avatarPosX}% ${c.avatarPosY}%;transform:scale(${c.avatarZoom});">`
+            `<video src="${escapeHtml(c.avatar)}" autoplay loop muted playsinline style="width:100%;height:100%;object-fit:cover;object-position:${c.avatarPosX}% ${c.avatarPosY}%;transform:scale(${c.avatarZoom});"></video>` :
+            `<img src="${escapeHtml(c.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${c.username}`)}" style="width:100%;height:100%;object-fit:cover;object-position:${c.avatarPosX}% ${c.avatarPosY}%;transform:scale(${c.avatarZoom});">`
           }
         </div>
         <div style="flex:1;min-width:0;">
@@ -1629,8 +1643,8 @@
       const st = `width:100%;height:100%;object-fit:cover;object-position:${px}% ${py}%;transform:scale(${z});`;
       const src = dev.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${dev.username}`;
       avatarEl.innerHTML = isVideoSource(src)
-        ? `<video src="${src}" autoplay loop muted playsinline style="${st}"></video>`
-        : `<img src="${src}" style="${st}" alt="">`;
+        ? `<video src="${escapeHtml(src)}" autoplay loop muted playsinline style="${st}"></video>`
+        : `<img src="${escapeHtml(src)}" style="${st}" alt="">`;
     }
 
     const nameEl = document.getElementById("view-profile-name");
@@ -2356,7 +2370,7 @@
 
     container.innerHTML = filtered.map(c => `
       <div class="code-item-card">
-        ${c.image ? `<div class="code-item-banner"><img src="${c.image}" alt="${escapeHtml(c.title)}" style="width:100%;height:100%;object-fit:cover;border-radius:6px 6px 0 0;"></div>` : ""}
+        ${c.image ? `<div class="code-item-banner"><img src="${escapeHtml(c.image)}" alt="${escapeHtml(c.title)}" style="width:100%;height:100%;object-fit:cover;border-radius:6px 6px 0 0;"></div>` : ""}
         <div class="code-item-content">
           <div class="code-item-meta">
             <img src="https://api.dicebear.com/7.x/bottts/svg?seed=${escapeHtml(c.author)}" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border-color);">
@@ -2525,9 +2539,9 @@
         const py = userProfile.avatarPosY ?? 50;
         const st = `width:100%;height:100%;object-fit:cover;border-radius:50%;object-position:${px}% ${py}%;transform:scale(${z});`;
         if (isVideoSource(userProfile.avatar)) {
-          avatarEl.innerHTML = `<video src="${userProfile.avatar}" autoplay loop muted playsinline style="${st}"></video>`;
+          avatarEl.innerHTML = `<video src="${escapeHtml(userProfile.avatar)}" autoplay loop muted playsinline style="${st}"></video>`;
         } else {
-          avatarEl.innerHTML = `<img src="${userProfile.avatar}" style="${st}">`;
+          avatarEl.innerHTML = `<img src="${escapeHtml(userProfile.avatar)}" style="${st}">`;
         }
       }
     }
@@ -2553,8 +2567,15 @@
   }
   window.showToast = showToast;
 
+  // Claude Security Patch: added quote-escaping - previously " and ' passed through untouched,
+  // meaning every existing escapeHtml() call site inside an HTML attribute was still exploitable.
   function escapeHtml(t) {
-    return String(t || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return String(t || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
    
@@ -2581,12 +2602,9 @@
           document.getElementById("auth-gate-screen")?.classList.add("hidden");
           showToast("Signed in with Google!", "success");
         } catch (err) {
-          
-          const guestName = "google_user_" + Math.floor(Math.random() * 1000);
-          currentUser = { uid: "g_" + Date.now(), email: `${guestName}@gmail.com` };
-          await loadUserProfile(currentUser.uid);
-          document.getElementById("auth-gate-screen")?.classList.add("hidden");
-          showToast("Signed in with Google!", "success");
+          // Claude Security Patch: previously this fabricated a fake "signed in" session on ANY
+          // failure (closed popup, blocked popup, etc.) - that let anyone bypass Google auth entirely.
+          showToast("Google sign-in was cancelled or failed. Please try again.", "error");
         }
       };
     }
@@ -2631,7 +2649,21 @@
           document.getElementById("auth-gate-screen")?.classList.add("hidden");
           showToast(`Welcome back, ${username}!`, "success");
         } catch (err) {
-          
+          // Claude Security Patch: a rejected password used to fall through to this same fallback
+          // and log the user in anyway. Only genuine connectivity errors get the offline fallback now;
+          // a bad password/username is rejected instead of granting access.
+          const credentialErrorCodes = [
+            "auth/wrong-password",
+            "auth/user-not-found",
+            "auth/invalid-credential",
+            "auth/invalid-email",
+            "auth/user-disabled",
+            "auth/too-many-requests"
+          ];
+          if (err && credentialErrorCodes.includes(err.code)) {
+            showToast("Incorrect username or password.", "error");
+            return;
+          }
           currentUser = { uid: "u_" + btoa(username), email: syntheticEmail };
           await loadUserProfile(currentUser.uid);
           document.getElementById("auth-gate-screen")?.classList.add("hidden");
@@ -2668,6 +2700,12 @@
             currentUser = { uid: "u_" + btoa(val.username), email: syntheticEmail };
           }
         } catch (err) {
+          // Claude Security Patch: an "email-already-in-use" error means this username is genuinely
+          // taken - previously it silently created a colliding local-only account instead of blocking.
+          if (err && err.code === "auth/email-already-in-use") {
+            showToast(`The username '${val.username}' is already taken.`, "error");
+            return;
+          }
           currentUser = { uid: "u_" + btoa(val.username), email: syntheticEmail };
         }
 
