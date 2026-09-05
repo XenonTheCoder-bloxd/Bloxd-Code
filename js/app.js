@@ -3175,4 +3175,166 @@
     }
   });
 
+
+  // ---------------------------------------------------------------------
+  // Admin-only debug capture panel. Not visible to regular visitors -
+  // only renders once isAdminUser resolves true. Captures console output,
+  // uncaught errors, unhandled promise rejections, and layout overflow
+  // (the same check used to track down the sidebar-nav scrollbar bug),
+  // all timestamped and tagged with the active view. Exists so a bug can
+  // be captured on-device (phone included) and handed over as one file
+  // instead of live-narrating DevTools output back and forth.
+  (function setupDebugCapture() {
+    const buffer = [];
+    let capturing = false;
+    let overflowTimer = null;
+    const MAX_ENTRIES = 3000;
+
+    function activeViewId() {
+      return document.querySelector(".view-panel.active")?.id || "";
+    }
+
+    function push(type, parts) {
+      if (!capturing) return;
+      if (buffer.length >= MAX_ENTRIES) buffer.shift();
+      const msg = parts.map(p => {
+        if (typeof p === "string") return p;
+        try { return JSON.stringify(p); } catch (e) { return String(p); }
+      }).join(" ");
+      buffer.push({ t: new Date().toISOString(), type, view: activeViewId(), msg });
+    }
+
+    ["log", "warn", "error", "info"].forEach((level) => {
+      const orig = console[level] ? console[level].bind(console) : () => {};
+      console[level] = function (...args) {
+        push(level, args);
+        orig(...args);
+      };
+    });
+
+    window.addEventListener("error", (e) => {
+      push("error", [`${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`]);
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      push("error", [`Unhandled promise rejection: ${e.reason}`]);
+    });
+
+    function checkOverflow() {
+      const offenders = [...document.querySelectorAll("*")].filter(
+        (el) => el.scrollWidth > el.clientWidth + 1
+      );
+      if (offenders.length) {
+        push(
+          "overflow",
+          [offenders.map((el) => `${el.tagName}.${el.className || ""} ${el.scrollWidth}>${el.clientWidth}`).join(" | ")]
+        );
+      }
+    }
+
+    function exportLog() {
+      return buffer
+        .map((e) => `[${e.t}] (${e.view}) ${e.type.toUpperCase()}: ${e.msg}`)
+        .join("\n");
+    }
+
+    function buildPanel() {
+      if (document.getElementById("xenon-debug-btn")) return;
+
+      const btn = document.createElement("button");
+      btn.id = "xenon-debug-btn";
+      btn.innerHTML = '<i class="fa-solid fa-bug"></i>';
+      btn.style.cssText =
+        "position:fixed;bottom:16px;right:16px;width:40px;height:40px;border-radius:50%;" +
+        "background:#ff4444;color:#fff;border:none;z-index:999999;cursor:pointer;" +
+        "font-size:16px;box-shadow:0 4px 12px rgba(0,0,0,0.5);";
+      document.body.appendChild(btn);
+
+      const panel = document.createElement("div");
+      panel.id = "xenon-debug-panel";
+      panel.style.cssText =
+        "display:none;position:fixed;bottom:64px;right:16px;width:min(380px,92vw);" +
+        "max-height:65vh;background:#111;border:1px solid #333;border-radius:8px;" +
+        "z-index:999999;padding:12px;color:#fff;font-family:var(--font-mono, monospace);" +
+        "font-size:11px;box-shadow:0 8px 24px rgba(0,0,0,0.6);";
+      panel.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+        '<strong>Debug Capture</strong>' +
+        '<span id="xenon-debug-count" style="color:#888;">0 entries</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">' +
+        '<button id="xenon-debug-toggle" style="flex:1;min-width:110px;padding:6px;background:#fff;color:#000;border:none;border-radius:4px;cursor:pointer;font-weight:600;">Start Capture</button>' +
+        '<button id="xenon-debug-copy" style="padding:6px 10px;background:#222;color:#fff;border:1px solid #444;border-radius:4px;cursor:pointer;">Copy</button>' +
+        '<button id="xenon-debug-download" style="padding:6px 10px;background:#222;color:#fff;border:1px solid #444;border-radius:4px;cursor:pointer;">Download</button>' +
+        '<button id="xenon-debug-clear" style="padding:6px 10px;background:#222;color:#fff;border:1px solid #444;border-radius:4px;cursor:pointer;">Clear</button>' +
+        '</div>' +
+        '<div id="xenon-debug-log" style="max-height:40vh;overflow-y:auto;white-space:pre-wrap;word-break:break-all;background:#000;border-radius:4px;padding:6px;"></div>';
+      document.body.appendChild(panel);
+
+      btn.onclick = () => {
+        panel.style.display = panel.style.display === "none" ? "block" : "none";
+      };
+
+      const toggleBtn = document.getElementById("xenon-debug-toggle");
+      toggleBtn.onclick = () => {
+        if (!capturing) {
+          capturing = true;
+          buffer.length = 0;
+          push("info", ["--- capture started ---"]);
+          overflowTimer = setInterval(checkOverflow, 300);
+          toggleBtn.textContent = "Stop Capture";
+          toggleBtn.style.background = "#ff4444";
+          toggleBtn.style.color = "#fff";
+        } else {
+          push("info", ["--- capture stopped ---"]);
+          capturing = false;
+          clearInterval(overflowTimer);
+          toggleBtn.textContent = "Start Capture";
+          toggleBtn.style.background = "#fff";
+          toggleBtn.style.color = "#000";
+        }
+      };
+
+      document.getElementById("xenon-debug-copy").onclick = () => {
+        navigator.clipboard?.writeText(exportLog()).then(() => {
+          if (typeof showToast === "function") showToast("Log copied to clipboard", "success");
+        });
+      };
+
+      document.getElementById("xenon-debug-download").onclick = () => {
+        const blob = new Blob([exportLog()], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `bloxdcode-debug-${Date.now()}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      document.getElementById("xenon-debug-clear").onclick = () => {
+        buffer.length = 0;
+        renderLog();
+      };
+
+      function renderLog() {
+        const el = document.getElementById("xenon-debug-log");
+        const countEl = document.getElementById("xenon-debug-count");
+        if (!el || !countEl) return;
+        countEl.textContent = `${buffer.length} entries`;
+        el.textContent = exportLog();
+        el.scrollTop = el.scrollHeight;
+      }
+
+      setInterval(renderLog, 500);
+    }
+
+    // Poll for admin status resolving (custom claim check happens async on
+    // load) rather than hooking every call site that could change it.
+    const adminWatch = setInterval(() => {
+      if (isAdminUser) {
+        buildPanel();
+        clearInterval(adminWatch);
+      }
+    }, 1000);
+  })();
+
 })();
