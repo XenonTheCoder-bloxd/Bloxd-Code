@@ -249,7 +249,11 @@ input, textarea, select, pre, code, [contenteditable="true"] {
 @keyframes loadProgress { 0% { width: 0%; } 100% { width: 100%; } }
 
 .app-layout {
-  display: flex;
+  /* Not flex: .sidebar is position:fixed (out of flow), so the old flex:1 on
+     .main-wrapper sized it to 100% of this container and THEN added its own
+     margin-left on top - 240px of guaranteed horizontal overflow on every
+     screen size. Plain block layout lets a block element's auto-width
+     correctly subtract its own margin-left instead. */
   min-height: 100vh;
   width: 100%;
 }
