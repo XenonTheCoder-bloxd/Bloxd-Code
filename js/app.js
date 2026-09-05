@@ -3240,14 +3240,23 @@
     function buildPanel() {
       if (document.getElementById("xenon-debug-btn")) return;
 
+      // Lives in the header, not floating over page content - the header is a
+      // fixed strip with nothing else draggable in it, so this can never end up
+      // silently sitting on top of (and eating clicks meant for) something like
+      // a user's draggable portfolio card or its music widget the way a
+      // page-floating button could.
       const btn = document.createElement("button");
       btn.id = "xenon-debug-btn";
-      btn.innerHTML = '<i class="fa-solid fa-bug"></i>';
-      btn.style.cssText =
-        "position:fixed;bottom:16px;right:16px;width:40px;height:40px;border-radius:50%;" +
-        "background:#ff4444;color:#fff;border:none;z-index:999999;cursor:pointer;" +
-        "font-size:16px;box-shadow:0 4px 12px rgba(0,0,0,0.5);";
-      document.body.appendChild(btn);
+      btn.className = "btn btn-secondary";
+      btn.title = "Debug capture";
+      btn.innerHTML = '<i class="fa-solid fa-bug" style="color:#ff4444;"></i>';
+      btn.style.cssText = "flex-shrink:0;";
+      const headerRight = document.querySelector(".header-right");
+      if (headerRight) {
+        headerRight.insertBefore(btn, headerRight.firstChild);
+      } else {
+        document.body.appendChild(btn);
+      }
 
       const panel = document.createElement("div");
       panel.id = "xenon-debug-panel";
