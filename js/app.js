@@ -20,23 +20,14 @@
   let currentUser = null;
   let userProfile = null;
 
-  // Claude Security Patch: admin status now comes from a Firebase custom claim on the user's
-  // real ID token (set server-side via the Admin SDK), not a hardcoded UID list. Nothing in this
-  // file identifies who the admin is anymore - that lives entirely in Firebase Auth.
-  let isAdminUser = false;
-
-  async function refreshAdminStatus() {
-    isAdminUser = false;
-    if (currentUser && typeof currentUser.getIdTokenResult === "function") {
-      try {
-        const token = await currentUser.getIdTokenResult(true);
-        isAdminUser = !!(token.claims && token.claims.admin === true);
-      } catch (e) {}
-    }
-  }
+  // Claude Security Patch: hardcoded admin UID list. Simpler than custom claims for a project
+  // this size - to add/remove an admin, edit this array AND the matching array in the Firestore
+  // rules, then redeploy/publish both. This only controls what the UI *shows*; the Firestore
+  // rules are what actually enforce it server-side.
+  const ADMIN_UIDS = ["9YnxVrC58RNQ9wOWC7sdaxtxID83"];
 
   function isAdmin() {
-    return isAdminUser;
+    return !!(currentUser && ADMIN_UIDS.includes(currentUser.uid));
   }
 
   function dedupeRegistry() {
@@ -220,12 +211,10 @@
         if (user) {
           currentUser = user;
           await loadUserProfile(user.uid);
-          await refreshAdminStatus();
           if (authGate) authGate.classList.add("hidden");
         } else if (!localUser) {
           currentUser = null;
           userProfile = null;
-          isAdminUser = false;
           if (authGate) authGate.classList.remove("hidden");
         }
         updateUserUI();
