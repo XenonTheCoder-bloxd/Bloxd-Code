@@ -71,7 +71,6 @@
       auth = firebase.auth();
       db = firebase.firestore();
 
-
       if (db.settings) {
         db.settings({
           merge: true,
@@ -80,55 +79,11 @@
         });
       }
 
-      try {
-        db.disableNetwork().catch(() => {});
-      } catch (err) {}
-
-      new Promise((resolve) => {
-        let done = false;
-        const finish = (online) => {
-          if (done) return;
-          done = true;
-          firestoreOnline = online;
-          if (online && db) {
-            try {
-              db.enableNetwork().catch(() => {});
-            } catch (err) {}
-          } else if (!online) {
-            showToast("Running in local mode, changes stay on this device.", "info");
-          }
-          resolve(online);
-        };
-        try {
-          if (typeof fetch !== "function") {
-            finish(true);
-            return;
-          }
-          let timer = null;
-          let signal;
-          if (typeof AbortController !== "undefined") {
-            const controller = new AbortController();
-            signal = controller.signal;
-            timer = setTimeout(() => {
-              try { controller.abort(); } catch (e) {}
-              finish(false);
-            }, 4000);
-          } else {
-            timer = setTimeout(() => finish(false), 4000);
-          }
-          fetch("https://firestore.googleapis.com/", { mode: "no-cors", signal: signal })
-            .then(() => {
-              if (timer) clearTimeout(timer);
-              finish(true);
-            })
-            .catch(() => {
-              if (timer) clearTimeout(timer);
-              finish(false);
-            });
-        } catch (err) {
-          finish(false);
-        }
-      });
+      // Trust the SDK's own connection handling instead of a fragile fetch-probe that
+      // permanently disabled Firestore for the whole session on any hiccup (ad blockers,
+      // strict browser privacy modes, slow networks). Every call site below already has
+      // its own .catch(), so real network failures degrade gracefully per-call anyway.
+      firestoreOnline = true;
     }
   } catch (err) {
     console.warn("Firebase initialized with local fallback:", err);
