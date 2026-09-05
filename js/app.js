@@ -35,10 +35,6 @@
     }
   }
 
-  function isAdmin() {
-    return isAdminUser || (userProfile?.username || "").toLowerCase() === "ren";
-  }
-
   function dedupeRegistry() {
     const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
     const byUid = {};
@@ -263,7 +259,6 @@
     const defaultName = (currentUser.displayName || (currentUser.email ? currentUser.email.split("@")[0] : "coder")).toLowerCase().replace(/[^a-z0-9]/g, "");
     userProfile = {
       uid: currentUser.uid,
-      email: currentUser.email || usernameToEmail(defaultName),
       username: defaultName || "coder_" + Math.floor(Math.random() * 1000),
       bio: "Bloxd.io Developer",
       avatar: currentUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.uid}`,
@@ -969,17 +964,15 @@
       return;
     }
 
-    const safeCode = (code || "")
-      .replace(/window\.parent/gi, "null")
-      .replace(/window\.top/gi, "null")
-      .replace(/document\.cookie/gi, "''")
-      .replace(/localStorage/gi, "null");
-
+    // The iframe carries sandbox="allow-scripts" (no allow-same-origin) in index.html, so
+    // this document is always opaque-origin: it cannot reach window.parent, cookies,
+    // localStorage, or IndexedDB on the real site no matter what the code does. No
+    // string-blocklist needed - the browser enforces this, not a regex.
     frame.srcdoc = `
       <!DOCTYPE html>
       <html>
         <head><style>body{margin:0;overflow:hidden;background:transparent;color:#fff;font-family:sans-serif;}</style></head>
-        <body>${safeCode}</body>
+        <body>${code}</body>
       </html>
     `;
   }
@@ -1848,7 +1841,7 @@
     }
 
     const ownName = (userProfile?.username || "").toLowerCase();
-    const admin = isAdmin();
+    const admin = isAdminUser;
 
     container.innerHTML = list.slice(0, 5).map(c => `
       <div class="dev-creator-mini-card" onclick="window.openDevProfile('${c.username}')" style="cursor:pointer;" title="View ${escapeHtml(c.username)}'s portfolio">
@@ -1977,7 +1970,7 @@
 
     const delBtn = document.getElementById("view-profile-delete");
     if (delBtn) {
-      const showDel = isAdmin() && key !== ownName;
+      const showDel = isAdminUser && key !== ownName;
       delBtn.style.display = showDel ? "block" : "none";
       delBtn.onclick = () => {
         modal.classList.remove("active");
@@ -1990,7 +1983,7 @@
   };
 
   window.deleteDevProfile = async function(username) {
-    if (!isAdmin()) return;
+    if (!isAdminUser) return;
     const key = String(username || "").toLowerCase().replace(/[^a-z0-9_\-]/g, "");
     if (!key) return;
     if (key === (userProfile?.username || "").toLowerCase()) {
@@ -2940,7 +2933,6 @@
             currentUser = { uid: "u_" + btoa(username), email: syntheticEmail };
             userProfile = {
               uid: currentUser.uid,
-              email: syntheticEmail,
               username: username,
               bio: "Bloxd.io Developer",
               avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${username}`,
@@ -3019,7 +3011,6 @@
 
         userProfile = {
           uid: currentUser.uid,
-          email: syntheticEmail,
           username: val.username,
           bio: "Bloxd.io Developer",
           avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${val.username}`,
