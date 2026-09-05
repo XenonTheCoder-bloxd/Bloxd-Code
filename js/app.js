@@ -271,7 +271,7 @@
       portfolioBg: DEFAULT_BG,
       portfolioAudio: "",
       audioTitle: "",
-      customCode: "/* Custom HTML, CSS, JS */",
+      customCode: "",
       socials: { discord: "", github: "" },
       stats: { xp: 0, lessons: 0 }
     };
@@ -444,6 +444,130 @@
     const val = normalizeBg(value);
     if (isVideoSource(val) || isGradientBg(val)) return `background-image:${val};`;
     return `background-image:url('${val}');`;
+  }
+
+  let fxRAF = 0;
+  let fxParts = [];
+  let currentFxKind = "none";
+
+  function stopStageFx() {
+    if (fxRAF) cancelAnimationFrame(fxRAF);
+    fxRAF = 0;
+    fxParts = [];
+    currentFxKind = "none";
+    const c = document.getElementById("stage-fx");
+    if (c) {
+      try {
+        c.getContext("2d")?.clearRect(0, 0, c.width, c.height);
+      } catch (e) {}
+    }
+  }
+
+  function startStageFx(kind) {
+    stopStageFx();
+    currentFxKind = kind || "none";
+    if (!currentFxKind || currentFxKind === "none") return;
+    const stage = document.getElementById("studio-stage");
+    if (!stage) return;
+    let canvas = document.getElementById("stage-fx");
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvas.id = "stage-fx";
+      stage.appendChild(canvas);
+    }
+    const rect = stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = rect.width;
+    const H = rect.height;
+    const R = Math.random;
+    const dot = (x, y, r) => {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, 6.283);
+      ctx.fill();
+    };
+    if (currentFxKind === "rain") {
+      for (let i = 0; i < 130; i++) fxParts.push({ x: R() * (W + 40) - 20, y: R() * H, len: 10 + R() * 14, sp: 9 + R() * 8, dr: -2 - R() * 2 });
+    } else if (currentFxKind === "snow") {
+      for (let i = 0; i < 110; i++) fxParts.push({ x: R() * W, y: R() * H, r: 1 + R() * 2.6, sp: 0.4 + R() * 1.1, ph: R() * 6.28, sw: 0.3 + R() * 0.7 });
+    } else if (currentFxKind === "stars") {
+      for (let i = 0; i < 150; i++) fxParts.push({ x: R() * W, y: R() * H, r: 0.4 + R() * 1.2, ph: R() * 6.28, sp: 0.5 + R() * 1.5 });
+    } else if (currentFxKind === "fireflies") {
+      for (let i = 0; i < 45; i++) fxParts.push({ x: R() * W, y: R() * H, vx: (R() - 0.5) * 0.4, vy: (R() - 0.5) * 0.4, ph: R() * 6.28, r: 1 + R() * 2 });
+    } else {
+      currentFxKind = "none";
+      return;
+    }
+    const t0 = performance.now();
+    const step = (now) => {
+      const t = (now - t0) / 1000;
+      ctx.clearRect(0, 0, W, H);
+      if (currentFxKind === "rain") {
+        ctx.strokeStyle = "rgba(170,190,220,0.45)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (const q of fxParts) {
+          ctx.moveTo(q.x, q.y);
+          ctx.lineTo(q.x + q.dr * 0.6, q.y + q.len);
+          q.y += q.sp;
+          q.x += q.dr;
+          if (q.y > H + 20) {
+            q.y = -20;
+            q.x = R() * (W + 40) - 20;
+          }
+        }
+        ctx.stroke();
+      } else if (currentFxKind === "snow") {
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        for (const q of fxParts) {
+          q.y += q.sp;
+          q.x += Math.sin(t * 1.2 + q.ph) * q.sw * 0.5;
+          if (q.y > H + 6) {
+            q.y = -6;
+            q.x = R() * W;
+          }
+          dot(q.x, q.y, q.r);
+        }
+      } else if (currentFxKind === "stars") {
+        for (const q of fxParts) {
+          ctx.fillStyle = `rgba(255,255,255,${(0.25 + 0.65 * Math.abs(Math.sin(t * q.sp + q.ph))).toFixed(3)})`;
+          dot(q.x, q.y, q.r);
+        }
+      } else if (currentFxKind === "fireflies") {
+        for (const q of fxParts) {
+          q.x += q.vx + Math.sin(t + q.ph) * 0.15;
+          q.y += q.vy + Math.cos(t * 0.8 + q.ph) * 0.15;
+          if (q.x < -10) q.x = W + 10;
+          if (q.x > W + 10) q.x = -10;
+          if (q.y < -10) q.y = H + 10;
+          if (q.y > H + 10) q.y = -10;
+          const glow = 0.1 + 0.08 * Math.sin(t * 2 + q.ph);
+          ctx.fillStyle = `rgba(255,220,130,${glow.toFixed(3)})`;
+          dot(q.x, q.y, q.r * 4);
+          ctx.fillStyle = "rgba(255,230,150,0.9)";
+          dot(q.x, q.y, q.r);
+        }
+      }
+      fxRAF = requestAnimationFrame(step);
+    };
+    fxRAF = requestAnimationFrame(step);
+    if (!window.__fxResizeBound) {
+      window.__fxResizeBound = 1;
+      window.addEventListener("resize", () => {
+        if (currentFxKind && currentFxKind !== "none") startStageFx(currentFxKind);
+      });
+    }
+  }
+
+  function syncFxRow(fx) {
+    document.querySelectorAll("#studio-fx-row button").forEach(x => {
+      x.classList.toggle("selected", x.getAttribute("data-fx") === fx);
+    });
   }
 
   let audioPlayer = null;
@@ -701,20 +825,51 @@
   }
 
   function updatePortfolioUI() {
-    const p = publicViewProfile || userProfile;
-    if (!p) return;
-
-    const readOnly = !!publicViewProfile;
-    document.body.classList.toggle("public-mode", readOnly);
+    const pubMode = !!publicViewUser;
+    const p = pubMode ? publicViewProfile : userProfile;
+    document.body.classList.toggle("public-mode", pubMode);
     const toolbar = document.querySelector(".studio-toolbar");
-    if (toolbar) toolbar.style.display = readOnly ? "none" : "";
+    if (toolbar) toolbar.style.display = pubMode ? "none" : "";
     const banner = document.getElementById("public-view-banner");
     if (banner) {
-      banner.style.display = readOnly ? "flex" : "none";
-      if (readOnly) {
+      banner.style.display = (pubMode && !bannerDismissed) ? "flex" : "none";
+      if (pubMode) {
         const bn = document.getElementById("public-view-name");
-        if (bn) bn.textContent = p.username;
+        if (bn) bn.textContent = (p && p.username) || publicViewUser;
+        const signBtn = document.getElementById("public-view-signin");
+        if (signBtn) signBtn.textContent = userProfile ? "Back to editor" : "Sign in";
       }
+    }
+    if (!p) {
+      if (!pubMode) return;
+      paintBg(document.getElementById("stage-bg-layer"), null);
+      const nfCard = document.getElementById("studio-card");
+      if (nfCard) {
+        nfCard.style.left = "50%";
+        nfCard.style.top = "50%";
+      }
+      avatarZoom = 1;
+      avatarPosX = 50;
+      avatarPosY = 50;
+      const avatarContainer = document.getElementById("stage-avatar-container");
+      if (avatarContainer) {
+        avatarContainer.innerHTML = `<img src="https://api.dicebear.com/7.x/bottts/svg?seed=${escapeHtml(publicViewUser)}" class="portfolio-clean-avatar" alt="Avatar" draggable="false" style="${avatarImgStyle()}">`;
+      }
+      const nameEl = document.getElementById("stage-name");
+      if (nameEl) nameEl.textContent = publicViewUser;
+      const handleEl = document.getElementById("stage-handle");
+      if (handleEl) handleEl.textContent = `${publicViewUser}.bloxdcode.com`;
+      const bioEl = document.getElementById("stage-bio");
+      if (bioEl) bioEl.textContent = "Couldn't load this portfolio. Whoever shared it may need to open it once with their ad-blocker paused so it can sync.";
+      const socialsEl = document.getElementById("stage-socials");
+      if (socialsEl) socialsEl.innerHTML = "";
+      const viewsEl = document.getElementById("stage-views");
+      if (viewsEl) viewsEl.innerHTML = `<i class="fa-regular fa-eye"></i> 0 views`;
+      const audioWidget = document.getElementById("portfolio-audio-widget");
+      if (audioWidget) audioWidget.classList.remove("has-audio");
+      renderCustomSandbox("");
+      stopStageFx();
+      return;
     }
 
     const sub = document.getElementById("studio-subdomain-display");
@@ -800,11 +955,19 @@
     if (musicCurrent) musicCurrent.textContent = p.portfolioAudio ? (p.audioTitle || "Uploaded track") : "No track added";
 
     renderCustomSandbox(p.customCode || "");
+    startStageFx(p.portfolioEffect || "none");
+    syncFxRow(p.portfolioEffect || "none");
   }
 
   function renderCustomSandbox(code) {
     const frame = document.getElementById("stage-sandbox-frame");
     if (!frame) return;
+
+    const hasContent = String(code || "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/<!--[\s\S]*?-->/g, "").trim();
+    if (!hasContent) {
+      frame.srcdoc = "<!DOCTYPE html><html><body></body></html>";
+      return;
+    }
 
     const safeCode = (code || "")
       .replace(/window\.parent/gi, "null")
@@ -920,12 +1083,54 @@
     const pubSign = document.getElementById("public-view-signin");
     if (pubSign) {
       pubSign.onclick = () => {
+        const wasLogged = !!userProfile;
         publicViewUser = "";
         publicViewProfile = null;
+        publicViewNotFound = false;
+        bannerDismissed = false;
+        hideCardMenu();
         updatePortfolioUI();
-        document.getElementById("auth-gate-screen")?.classList.remove("hidden");
+        if (!wasLogged) document.getElementById("auth-gate-screen")?.classList.remove("hidden");
       };
     }
+
+    const pubHide = document.getElementById("public-view-hide");
+    if (pubHide) {
+      pubHide.onclick = () => {
+        bannerDismissed = true;
+        const banner = document.getElementById("public-view-banner");
+        if (banner) banner.style.display = "none";
+      };
+    }
+
+    const previewBtn = document.getElementById("studio-preview-btn");
+    if (previewBtn) {
+      previewBtn.onclick = () => {
+        if (!userProfile) return;
+        bannerDismissed = false;
+        publicViewUser = (userProfile.username || "").toLowerCase();
+        publicViewProfile = userProfile;
+        publicViewNotFound = false;
+        hideCardMenu();
+        ["studio-bg-pop", "studio-music-pop", "studio-settings-pop"].forEach(pid => {
+          const el = document.getElementById(pid);
+          if (el) el.style.display = "none";
+        });
+        navigateTo("portfolio");
+        updatePortfolioUI();
+        showToast("This is what visitors see.", "info");
+      };
+    }
+
+    document.querySelectorAll("#studio-fx-row button").forEach(b => {
+      b.onclick = () => {
+        const fx = b.getAttribute("data-fx") || "none";
+        saveUserProfileData({ portfolioEffect: fx });
+        startStageFx(fx);
+        syncFxRow(fx);
+        showToast(fx === "none" ? "Effect off." : `Effect on: ${fx}`, "success");
+      };
+    });
 
     
     const avatarFile = document.getElementById("studio-avatar-file-upload");
@@ -1669,9 +1874,11 @@
 
   let publicViewUser = "";
   let publicViewProfile = null;
+  let publicViewNotFound = false;
+  let bannerDismissed = false;
 
   function studioReadOnly() {
-    return !!publicViewProfile;
+    return !!publicViewUser;
   }
 
   async function resolveDevProfile(username) {
@@ -2620,6 +2827,8 @@
 
     if (view === "home") renderDashboard();
     if (view === "codes") renderCodesGrid(activeCodesCategory);
+    if (view === "portfolio") startStageFx((publicViewProfile || userProfile)?.portfolioEffect || "none");
+    else stopStageFx();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   window.navigateTo = navigateTo;
@@ -2739,7 +2948,7 @@
               portfolioBg: DEFAULT_BG,
               portfolioAudio: "",
               audioTitle: "",
-              customCode: "/* Custom HTML, CSS, JS */",
+              customCode: "",
               socials: { discord: "", github: "" },
               stats: { xp: 0, lessons: 0 }
             };
@@ -2818,7 +3027,7 @@
           portfolioBg: DEFAULT_BG,
           portfolioAudio: "",
           audioTitle: "",
-          customCode: "/* Custom HTML, CSS, JS */",
+          customCode: "",
           socials: { discord: "", github: "" },
           stats: { xp: 0, lessons: 0 }
         };
@@ -2869,19 +3078,20 @@
     if (!requested) return;
     if (userProfile && requested === (userProfile.username || "").toLowerCase()) return;
     publicViewUser = requested;
+    publicViewNotFound = false;
+    bannerDismissed = false;
     hideCardMenu();
     document.getElementById("auth-gate-screen")?.classList.add("hidden");
     navigateTo("portfolio");
     updatePortfolioUI();
     const dev = await resolveDevProfile(requested);
     if (!dev) {
-      publicViewUser = "";
-      publicViewProfile = null;
+      publicViewNotFound = true;
       updatePortfolioUI();
-      showToast("Couldn't find that developer.", "error");
-      if (!userProfile && !currentUser) document.getElementById("auth-gate-screen")?.classList.remove("hidden");
+      showToast("Couldn't load that portfolio. An ad-blocker may be blocking portfolio data.", "error");
       return;
     }
+    publicViewNotFound = false;
     publicViewProfile = dev;
     countProfileView(dev);
     updatePortfolioUI();
