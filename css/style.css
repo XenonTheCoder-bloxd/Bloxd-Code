@@ -1135,6 +1135,31 @@ input, textarea, select, pre, code, [contenteditable="true"] {
   padding: 5px 12px;
 }
 
+#public-view-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+  animation: fadeUp 0.35s ease both;
+}
+
+#public-view-banner b {
+  color: #fff;
+}
+
+#public-view-banner .btn {
+  font-size: 12px;
+  padding: 5px 12px;
+  flex-shrink: 0;
+}
+
 .studio-pop {
   position: absolute;
   top: 12px;
