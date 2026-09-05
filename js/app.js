@@ -3022,7 +3022,15 @@
     }
     requested = requested.toLowerCase().replace(/[^a-z0-9_\-]/g, "");
     if (!requested) return;
-    if (userProfile && requested === (userProfile.username || "").toLowerCase()) return;
+    if (userProfile && requested === (userProfile.username || "").toLowerCase()) {
+      // It's your own subdomain while logged in as yourself - show your editable
+      // portfolio directly instead of doing nothing (previously just returned here).
+      hideCardMenu();
+      document.getElementById("auth-gate-screen")?.classList.add("hidden");
+      navigateTo("portfolio");
+      updatePortfolioUI();
+      return;
+    }
     publicViewUser = requested;
     publicViewNotFound = false;
     bannerDismissed = false;
