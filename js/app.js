@@ -139,8 +139,7 @@
 
   const RESERVED_USERNAMES = [
     "admin", "administrator", "root", "system", "bloxd", "bloxdcode", "api", "auth",
-    "support", "official", "mod", "moderator", "staff", "dev", "developer", "help",
-    "ren"
+    "support", "official", "mod", "moderator", "staff", "dev", "developer", "help"
   ];
 
   function normalizeLeet(text) {
