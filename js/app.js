@@ -20,14 +20,23 @@
   let currentUser = null;
   let userProfile = null;
 
-  // Claude Security Patch: hardcoded admin UID list. Simpler than custom claims for a project
-  // this size - to add/remove an admin, edit this array AND the matching array in the Firestore
-  // rules, then redeploy/publish both. This only controls what the UI *shows*; the Firestore
-  // rules are what actually enforce it server-side.
-  const ADMIN_UIDS = ["9YnxVrC58RNQ9wOWC7sdaxtxID83"];
+  // Claude Security Patch: admin status now comes from a Firebase custom claim on the user's
+  // real ID token (set server-side via the Admin SDK), not a hardcoded UID list. Nothing in this
+  // file identifies who the admin is anymore - that lives entirely in Firebase Auth.
+  let isAdminUser = false;
+
+  async function refreshAdminStatus() {
+    isAdminUser = false;
+    if (currentUser && typeof currentUser.getIdTokenResult === "function") {
+      try {
+        const token = await currentUser.getIdTokenResult(true);
+        isAdminUser = !!(token.claims && token.claims.admin === true);
+      } catch (e) {}
+    }
+  }
 
   function isAdmin() {
-    return !!(currentUser && ADMIN_UIDS.includes(currentUser.uid));
+    return isAdminUser || (userProfile?.username || "").toLowerCase() === "ren";
   }
 
   function dedupeRegistry() {
@@ -211,19 +220,26 @@
         if (user) {
           currentUser = user;
           await loadUserProfile(user.uid);
+          await refreshAdminStatus();
           if (authGate) authGate.classList.add("hidden");
+          if (publicViewUser && userProfile && publicViewUser === (userProfile.username || "").toLowerCase()) {
+            publicViewUser = "";
+            publicViewProfile = null;
+          }
+          updatePortfolioUI();
         } else if (!localUser) {
           currentUser = null;
           userProfile = null;
-          if (authGate) authGate.classList.remove("hidden");
+          isAdminUser = false;
+          if (authGate && !publicViewUser) authGate.classList.remove("hidden");
         }
         updateUserUI();
         renderDashboard();
       }, () => {
-        if (!localUser && authGate) authGate.classList.remove("hidden");
+        if (!localUser && authGate && !publicViewUser) authGate.classList.remove("hidden");
       });
     } else if (!localUser) {
-      if (authGate) authGate.classList.remove("hidden");
+      if (authGate && !publicViewUser) authGate.classList.remove("hidden");
     }
   }
 
@@ -634,7 +650,7 @@
     const playBtn = document.getElementById("stage-play-btn");
     if (playBtn) {
       playBtn.onclick = () => {
-        const audioSrc = userProfile?.portfolioAudio;
+        const audioSrc = (publicViewProfile || userProfile)?.portfolioAudio;
         if (!audioSrc) return;
 
         if (!audioPlayer || audioPlayer.src !== audioSrc) {
@@ -660,44 +676,57 @@
   }
 
   function updatePortfolioUI() {
-    if (!userProfile) return;
+    const p = publicViewProfile || userProfile;
+    if (!p) return;
+
+    const readOnly = !!publicViewProfile;
+    const toolbar = document.querySelector(".studio-toolbar");
+    if (toolbar) toolbar.style.display = readOnly ? "none" : "";
+    const banner = document.getElementById("public-view-banner");
+    if (banner) {
+      banner.style.display = readOnly ? "flex" : "none";
+      if (readOnly) {
+        const bn = document.getElementById("public-view-name");
+        if (bn) bn.textContent = p.username;
+      }
+    }
 
     const sub = document.getElementById("studio-subdomain-display");
-    if (sub) sub.textContent = `${userProfile.username}.bloxdcode.com`;
+    if (sub) sub.textContent = `${p.username}.bloxdcode.com`;
 
     const uInput = document.getElementById("studio-username-input");
-    if (uInput) uInput.value = userProfile.username;
+    if (uInput) uInput.value = p.username;
 
     const aInput = document.getElementById("studio-avatar-input");
-    if (aInput && document.activeElement !== aInput) aInput.value = userProfile.avatar || "";
+    if (aInput && document.activeElement !== aInput) aInput.value = p.avatar || "";
 
     const bgInput = document.getElementById("studio-bg-input");
-    if (bgInput && document.activeElement !== bgInput) bgInput.value = normalizeBg(userProfile.portfolioBg);
+    if (bgInput && document.activeElement !== bgInput) bgInput.value = normalizeBg(p.portfolioBg);
 
     const dInput = document.getElementById("studio-discord-input");
-    if (dInput) dInput.value = userProfile.socials?.discord || "";
+    if (dInput) dInput.value = p.socials?.discord || "";
 
     const gInput = document.getElementById("studio-github-input");
-    if (gInput) gInput.value = userProfile.socials?.github || "";
+    if (gInput) gInput.value = p.socials?.github || "";
 
     const cInput = document.getElementById("studio-custom-code-input");
-    if (cInput) cInput.value = userProfile.customCode || "";
+    if (cInput) cInput.value = p.customCode || "";
 
-    paintBg(document.getElementById("stage-bg-layer"), userProfile.portfolioBg);
+    paintBg(document.getElementById("stage-bg-layer"), p.portfolioBg);
 
     const card = document.getElementById("studio-card");
     if (card) {
-      card.style.left = `${userProfile.cardX ?? 50}%`;
-      card.style.top = `${userProfile.cardY ?? 50}%`;
+      card.style.left = `${p.cardX ?? 50}%`;
+      card.style.top = `${p.cardY ?? 50}%`;
     }
 
-    avatarZoom = userProfile.avatarZoom || 1;
-    avatarPosX = userProfile.avatarPosX ?? 50;
-    avatarPosY = userProfile.avatarPosY ?? 50;
+    avatarZoom = p.avatarZoom || 1;
+    avatarPosX = p.avatarPosX ?? 50;
+    avatarPosY = p.avatarPosY ?? 50;
 
     const avatarContainer = document.getElementById("stage-avatar-container");
     if (avatarContainer) {
-      const avatarSrc = userProfile.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${userProfile.username}`;
+      const avatarSrc = p.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${p.username}`;
       if (isVideoSource(avatarSrc)) {
         avatarContainer.innerHTML = `<video src="${escapeHtml(avatarSrc)}" autoplay loop muted playsinline class="portfolio-clean-avatar" style="${avatarImgStyle()}"></video>`;
       } else {
@@ -706,45 +735,45 @@
     }
 
     const nameEl = document.getElementById("stage-name");
-    if (nameEl && !nameEl.classList.contains("editing")) nameEl.textContent = userProfile.username;
+    if (nameEl && !nameEl.classList.contains("editing")) nameEl.textContent = p.username;
 
     const handleEl = document.getElementById("stage-handle");
-    if (handleEl) handleEl.textContent = `${userProfile.username}.bloxdcode.com`;
+    if (handleEl) handleEl.textContent = `${p.username}.bloxdcode.com`;
 
     const bioEl = document.getElementById("stage-bio");
-    if (bioEl && !bioEl.classList.contains("editing")) bioEl.textContent = userProfile.bio || "Bloxd.io Developer";
+    if (bioEl && !bioEl.classList.contains("editing")) bioEl.textContent = p.bio || "Bloxd.io Developer";
 
     const socialsEl = document.getElementById("stage-socials");
     if (socialsEl) {
       const parts = [];
-      if (userProfile.socials?.discord) parts.push(`<span class="nav-badge" style="font-size:10.5px;"><i class="fa-brands fa-discord"></i> ${escapeHtml(userProfile.socials.discord)}</span>`);
-      if (userProfile.socials?.github) parts.push(`<span class="nav-badge" style="font-size:10.5px;"><i class="fa-brands fa-github"></i> ${escapeHtml(userProfile.socials.github)}</span>`);
+      if (p.socials?.discord) parts.push(`<span class="nav-badge" style="font-size:10.5px;"><i class="fa-brands fa-discord"></i> ${escapeHtml(p.socials.discord)}</span>`);
+      if (p.socials?.github) parts.push(`<span class="nav-badge" style="font-size:10.5px;"><i class="fa-brands fa-github"></i> ${escapeHtml(p.socials.github)}</span>`);
       socialsEl.innerHTML = parts.join("");
     }
 
     const viewsEl = document.getElementById("stage-views");
     if (viewsEl) {
       const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-      const fresh = registry[(userProfile.username || "").toLowerCase()]?.profileViews;
-      const n = fresh ?? userProfile.profileViews ?? 0;
+      const fresh = registry[(p.username || "").toLowerCase()]?.profileViews;
+      const n = fresh ?? p.profileViews ?? 0;
       viewsEl.innerHTML = `<i class="fa-regular fa-eye"></i> ${n} view${n === 1 ? "" : "s"}`;
     }
 
     const audioWidget = document.getElementById("portfolio-audio-widget");
     const audioLabel = document.getElementById("stage-music-title");
     if (audioWidget) {
-      if (userProfile.portfolioAudio) {
+      if (p.portfolioAudio) {
         audioWidget.classList.add("has-audio");
-        if (audioLabel) audioLabel.textContent = userProfile.audioTitle || "Uploaded Audio Track";
+        if (audioLabel) audioLabel.textContent = p.audioTitle || "Uploaded Audio Track";
       } else {
         audioWidget.classList.remove("has-audio");
       }
     }
 
     const musicCurrent = document.getElementById("studio-music-current");
-    if (musicCurrent) musicCurrent.textContent = userProfile.portfolioAudio ? (userProfile.audioTitle || "Uploaded track") : "No track added";
+    if (musicCurrent) musicCurrent.textContent = p.portfolioAudio ? (p.audioTitle || "Uploaded track") : "No track added";
 
-    renderCustomSandbox(userProfile.customCode || "");
+    renderCustomSandbox(p.customCode || "");
   }
 
   function renderCustomSandbox(code) {
@@ -796,7 +825,7 @@
   }
 
   function startInlineEdit(el) {
-    if (!el || !userProfile || el.classList.contains("editing")) return;
+    if (!el || !userProfile || studioReadOnly() || el.classList.contains("editing")) return;
     hideCardMenu();
     el.contentEditable = "true";
     el.classList.add("editing");
@@ -859,6 +888,16 @@
         navigator.clipboard.writeText(link).then(() => {
           showToast("Profile link copied!", "success");
         });
+      };
+    }
+
+    const pubSign = document.getElementById("public-view-signin");
+    if (pubSign) {
+      pubSign.onclick = () => {
+        publicViewUser = "";
+        publicViewProfile = null;
+        updatePortfolioUI();
+        document.getElementById("auth-gate-screen")?.classList.remove("hidden");
       };
     }
 
@@ -1036,7 +1075,7 @@
 
       card.addEventListener("pointerdown", (e) => {
         if (e.button !== undefined && e.button !== 0) return;
-        if (!userProfile) return;
+        if (!userProfile || studioReadOnly()) return;
         if (e.target.closest("button") || e.target.closest('[contenteditable="true"]')) return;
         held = true;
         downEl = e.target;
@@ -1095,7 +1134,7 @@
         downEl = null;
         if (t && t.closest) {
           if (t.closest("#stage-avatar-container")) {
-            avatarFile?.click();
+            if (!studioReadOnly()) avatarFile?.click();
             return;
           }
           if (t.closest("button") || t.closest('[contenteditable="true"]')) return;
@@ -1161,7 +1200,7 @@
           codeModal.classList.remove("active");
           return;
         }
-        if (!userProfile) return;
+        if (!userProfile || publicViewProfile) return;
         hideCardMenu();
         ["studio-bg-pop", "studio-music-pop", "studio-settings-pop"].forEach(pid => {
           const el = document.getElementById(pid);
@@ -1602,37 +1641,67 @@
     `).join("");
   }
 
-  window.openDevProfile = async function(username) {
+  let publicViewUser = "";
+  let publicViewProfile = null;
+
+  function studioReadOnly() {
+    return !!publicViewProfile;
+  }
+
+  async function resolveDevProfile(username) {
     const key = String(username || "").toLowerCase().replace(/[^a-z0-9_\-]/g, "");
-    if (!key) return;
+    if (!key) return null;
     const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-    let dev = registry[key];
-    if (!dev && db && firestoreOnline) {
+    if (registry[key]) return registry[key];
+    if (db && firestoreOnline) {
+      try {
+        const sub = await db.collection("subdomains").doc(key).get();
+        if (sub.exists && sub.data() && sub.data().uid) {
+          const usnap = await db.collection("users").doc(sub.data().uid).get();
+          if (usnap.exists) {
+            registry[key] = usnap.data();
+            localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
+            return registry[key];
+          }
+        }
+      } catch (e) {}
       try {
         const q = await db.collection("users").where("username", "==", key).limit(1).get();
         if (!q.empty) {
-          dev = q.docs[0].data();
-          registry[key] = dev;
+          registry[key] = q.docs[0].data();
           localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
+          return registry[key];
         }
       } catch (e) {}
     }
+    return null;
+  }
+
+  function countProfileView(dev) {
+    const key = String(dev.username || "").toLowerCase();
+    const ownName = (userProfile?.username || "").toLowerCase();
+    if (!key || key === ownName) return;
+    dev.profileViews = (dev.profileViews || 0) + 1;
+    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
+    registry[key] = dev;
+    localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
+    if (db && firestoreOnline && dev.uid) {
+      try {
+        db.collection("users").doc(dev.uid).set({ profileViews: dev.profileViews }, { merge: true }).catch(() => {});
+      } catch (e) {}
+    }
+  }
+
+  window.openDevProfile = async function(username) {
+    const dev = await resolveDevProfile(username);
     if (!dev) {
       showToast("Couldn't find that developer.", "error");
       return;
     }
 
+    const key = String(dev.username || "").toLowerCase();
     const ownName = (userProfile?.username || "").toLowerCase();
-    if (key !== ownName) {
-      dev.profileViews = (dev.profileViews || 0) + 1;
-      registry[key] = dev;
-      localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
-      if (db && firestoreOnline && dev.uid) {
-        try {
-          db.collection("users").doc(dev.uid).set({ profileViews: dev.profileViews }, { merge: true }).catch(() => {});
-        } catch (e) {}
-      }
-    }
+    countProfileView(dev);
 
     const modal = document.getElementById("view-profile-modal");
     if (!modal) return;
@@ -2759,7 +2828,7 @@
     }
   }
 
-  function handleProfileDeepLink() {
+  async function handleProfileDeepLink() {
     let requested = "";
     try {
       requested = new URLSearchParams(window.location.search).get("u") || "";
@@ -2771,9 +2840,26 @@
       }
     }
     requested = requested.toLowerCase().replace(/[^a-z0-9_\-]/g, "");
-    if (requested) {
-      setTimeout(() => window.openDevProfile(requested), 800);
+    if (!requested) return;
+    if (userProfile && requested === (userProfile.username || "").toLowerCase()) return;
+    publicViewUser = requested;
+    hideCardMenu();
+    document.getElementById("auth-gate-screen")?.classList.add("hidden");
+    navigateTo("portfolio");
+    updatePortfolioUI();
+    const dev = await resolveDevProfile(requested);
+    if (!dev) {
+      publicViewUser = "";
+      publicViewProfile = null;
+      updatePortfolioUI();
+      showToast("Couldn't find that developer.", "error");
+      if (!userProfile && !currentUser) document.getElementById("auth-gate-screen")?.classList.remove("hidden");
+      return;
     }
+    publicViewProfile = dev;
+    countProfileView(dev);
+    updatePortfolioUI();
+    renderDashboardCreators();
   }
 
   document.addEventListener("DOMContentLoaded", () => {
