@@ -1154,6 +1154,45 @@ input, textarea, select, pre, code, [contenteditable="true"] {
   color: #fff;
 }
 
+body.public-mode .sidebar,
+body.public-mode .app-header {
+  display: none;
+}
+
+body.public-mode .main-wrapper {
+  margin-left: 0;
+}
+
+body.public-mode .content-area {
+  max-width: none;
+  padding: 0;
+}
+
+body.public-mode .portfolio-stage-box {
+  min-height: 100vh;
+  min-height: 100dvh;
+  border: none;
+  border-radius: 0;
+}
+
+body.public-mode #public-view-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  margin: 0;
+  width: auto;
+  max-width: calc(100vw - 24px);
+  white-space: nowrap;
+  overflow: hidden;
+  background: rgba(15, 15, 15, 0.92);
+  backdrop-filter: blur(8px);
+  border-radius: 999px;
+  padding: 6px 8px 6px 14px;
+  font-size: 12px;
+}
+
 #public-view-banner .btn {
   font-size: 12px;
   padding: 5px 12px;
