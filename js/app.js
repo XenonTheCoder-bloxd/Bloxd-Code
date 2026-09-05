@@ -20,13 +20,23 @@
   let currentUser = null;
   let userProfile = null;
 
-  // Claude Security Patch: this now matches the UID allowlist in the Firestore rules exactly.
-  // Username-based admin checks were client-spoofable; this only controls what the UI *shows* -
-  // the actual permission is enforced server-side by the rules, this just keeps them in sync.
-  const ADMIN_UIDS = ["9YnxVrC58RNQ9wOWC7sdaxtxID83"];
+  // Claude Security Patch: admin status now comes from a Firebase custom claim on the user's
+  // real ID token (set server-side via the Admin SDK), not a hardcoded UID list. Nothing in this
+  // file identifies who the admin is anymore - that lives entirely in Firebase Auth.
+  let isAdminUser = false;
+
+  async function refreshAdminStatus() {
+    isAdminUser = false;
+    if (currentUser && typeof currentUser.getIdTokenResult === "function") {
+      try {
+        const token = await currentUser.getIdTokenResult(true);
+        isAdminUser = !!(token.claims && token.claims.admin === true);
+      } catch (e) {}
+    }
+  }
 
   function isAdmin() {
-    return !!(currentUser && ADMIN_UIDS.includes(currentUser.uid));
+    return isAdminUser;
   }
 
   function dedupeRegistry() {
@@ -199,28 +209,31 @@
         updateUserUI();
         updatePortfolioUI();
         renderDashboard();
-        return;
       } catch (e) {}
     }
 
+    // Claude Security Patch: this listener used to be skipped entirely when a local cache
+    // existed, so currentUser was never a real Firebase User object after a reload and
+    // isAdmin() (which needs a real ID token) could never resolve true. Always attach it now.
     if (auth) {
       auth.onAuthStateChanged(async (user) => {
         if (user) {
           currentUser = user;
           await loadUserProfile(user.uid);
+          await refreshAdminStatus();
           if (authGate) authGate.classList.add("hidden");
-        } else {
+        } else if (!localUser) {
           currentUser = null;
           userProfile = null;
+          isAdminUser = false;
           if (authGate) authGate.classList.remove("hidden");
         }
         updateUserUI();
         renderDashboard();
       }, () => {
-        
-        if (authGate) authGate.classList.remove("hidden");
+        if (!localUser && authGate) authGate.classList.remove("hidden");
       });
-    } else {
+    } else if (!localUser) {
       if (authGate) authGate.classList.remove("hidden");
     }
   }
