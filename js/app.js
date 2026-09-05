@@ -18,6 +18,7 @@
 
   let auth = null;
   let db = null;
+  let firestoreOnline = false;
   let currentUser = null;
   let userProfile = null;
 
@@ -26,8 +27,8 @@
       firebase.initializeApp(firebaseConfig);
       auth = firebase.auth();
       db = firebase.firestore();
-      
-      
+
+
       if (db.settings) {
         db.settings({
           merge: true,
@@ -35,6 +36,56 @@
           ignoreUndefinedProperties: true
         });
       }
+
+      try {
+        db.disableNetwork().catch(() => {});
+      } catch (err) {}
+
+      new Promise((resolve) => {
+        let done = false;
+        const finish = (online) => {
+          if (done) return;
+          done = true;
+          firestoreOnline = online;
+          if (online && db) {
+            try {
+              db.enableNetwork().catch(() => {});
+            } catch (err) {}
+          } else if (!online) {
+            showToast("Running in local mode, changes stay on this device.", "info");
+          }
+          resolve(online);
+        };
+        try {
+          if (typeof fetch !== "function") {
+            finish(true);
+            return;
+          }
+          let timer = null;
+          let signal;
+          if (typeof AbortController !== "undefined") {
+            const controller = new AbortController();
+            signal = controller.signal;
+            timer = setTimeout(() => {
+              try { controller.abort(); } catch (e) {}
+              finish(false);
+            }, 4000);
+          } else {
+            timer = setTimeout(() => finish(false), 4000);
+          }
+          fetch("https://firestore.googleapis.com/", { mode: "no-cors", signal: signal })
+            .then(() => {
+              if (timer) clearTimeout(timer);
+              finish(true);
+            })
+            .catch(() => {
+              if (timer) clearTimeout(timer);
+              finish(false);
+            });
+        } catch (err) {
+          finish(false);
+        }
+      });
     }
   } catch (err) {
     console.warn("Firebase initialized with local fallback:", err);
@@ -136,7 +187,7 @@
   }
 
   async function loadUserProfile(uid) {
-    if (db) {
+    if (db && firestoreOnline) {
       try {
         const snap = await db.collection("users").doc(uid).get();
         if (snap.exists) {
@@ -178,15 +229,21 @@
     
     const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
     if (userProfile.username) {
-      const existing = registry[userProfile.username.toLowerCase()] || {};
+      const me = userProfile.username.toLowerCase();
+      Object.keys(registry).forEach(k => {
+        if (k !== me && registry[k] && registry[k].uid === userProfile.uid) {
+          delete registry[k];
+        }
+      });
+      const existing = registry[me] || {};
       if (userProfile.profileViews == null && existing.profileViews != null) {
         userProfile.profileViews = existing.profileViews;
       }
-      registry[userProfile.username.toLowerCase()] = userProfile;
+      registry[me] = userProfile;
       localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
     }
 
-    if (db && currentUser) {
+    if (db && firestoreOnline && currentUser) {
       try {
         db.collection("users").doc(currentUser.uid).set(userProfile, { merge: true }).catch(() => {});
       } catch (e) {}
@@ -219,7 +276,7 @@
       throw new Error(`The username '${clean}' is already taken.`);
     }
 
-    if (db) {
+    if (db && firestoreOnline) {
       try {
         const snap = await db.collection("subdomains").doc(clean).get();
         if (snap.exists && snap.data().uid !== userProfile.uid) {
@@ -235,8 +292,14 @@
       }
     }
 
+    const oldName = (userProfile.username || "").toLowerCase();
     userProfile.username = clean;
     userProfile.lastUsernameChange = now;
+    if (db && firestoreOnline && oldName && oldName !== clean) {
+      try {
+        db.collection("subdomains").doc(oldName).delete().catch(() => {});
+      } catch (e) {}
+    }
     saveUserProfileData(userProfile);
   }
 
@@ -749,9 +812,11 @@
     const copyBtn = document.getElementById("copy-subdomain-btn");
     if (copyBtn) {
       copyBtn.onclick = () => {
-        const link = `https://${userProfile?.username || "dev"}.bloxdcode.com`;
+        const name = userProfile?.username || "dev";
+        const base = window.location.href.split(/[?#]/)[0];
+        const link = base + "?u=" + encodeURIComponent(name);
         navigator.clipboard.writeText(link).then(() => {
-          showToast(`Copied ${link} to clipboard!`, "success");
+          showToast("Profile link copied!", "success");
         });
       };
     }
@@ -1477,18 +1542,32 @@
     `).join("");
   }
 
-  window.openDevProfile = function(username) {
+  window.openDevProfile = async function(username) {
+    const key = String(username || "").toLowerCase().replace(/[^a-z0-9_\-]/g, "");
+    if (!key) return;
     const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-    const key = String(username || "").toLowerCase();
-    const dev = registry[key];
-    if (!dev) return;
+    let dev = registry[key];
+    if (!dev && db && firestoreOnline) {
+      try {
+        const q = await db.collection("users").where("username", "==", key).limit(1).get();
+        if (!q.empty) {
+          dev = q.docs[0].data();
+          registry[key] = dev;
+          localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
+        }
+      } catch (e) {}
+    }
+    if (!dev) {
+      showToast("Couldn't find that developer.", "error");
+      return;
+    }
 
     const ownName = (userProfile?.username || "").toLowerCase();
     if (key !== ownName) {
       dev.profileViews = (dev.profileViews || 0) + 1;
       registry[key] = dev;
       localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
-      if (db && dev.uid) {
+      if (db && firestoreOnline && dev.uid) {
         try {
           db.collection("users").doc(dev.uid).set({ profileViews: dev.profileViews }, { merge: true }).catch(() => {});
         } catch (e) {}
@@ -2545,6 +2624,23 @@
     }
   }
 
+  function handleProfileDeepLink() {
+    let requested = "";
+    try {
+      requested = new URLSearchParams(window.location.search).get("u") || "";
+    } catch (e) {}
+    if (!requested) {
+      const parts = window.location.hostname.split(".");
+      if (parts.length >= 3 && parts[0] && !["www", "app"].includes(parts[0].toLowerCase())) {
+        requested = parts[0];
+      }
+    }
+    requested = requested.toLowerCase().replace(/[^a-z0-9_\-]/g, "");
+    if (requested) {
+      setTimeout(() => window.openDevProfile(requested), 800);
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => {
       const loader = document.getElementById("loading-screen");
@@ -2563,6 +2659,7 @@
     initLibs();
     initAcademy();
     initCodes();
+    handleProfileDeepLink();
 
     document.querySelectorAll(".nav-item[data-view]").forEach(btn => {
       btn.onclick = (e) => {
