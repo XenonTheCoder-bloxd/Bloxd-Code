@@ -463,7 +463,10 @@
 
           <div id="public-view-banner" style="display: none;">
             <span><i class="fa-regular fa-eye"></i> You're viewing <b id="public-view-name">someone</b>'s portfolio</span>
-            <button type="button" class="btn btn-secondary" id="public-view-signin">Sign in</button>
+            <div style="display: flex; gap: 6px; align-items: center; flex-shrink: 0;">
+              <button type="button" class="btn btn-secondary" id="public-view-signin">Sign in</button>
+              <button type="button" class="btn btn-secondary" id="public-view-hide" title="Hide" style="padding: 5px 9px;">&#10005;</button>
+            </div>
           </div>
 
           <div class="studio-toolbar">
@@ -473,6 +476,7 @@
               <button type="button" class="btn btn-secondary" id="studio-music-btn"><i class="fa-solid fa-music"></i> Music</button>
               <button type="button" class="btn btn-secondary" id="studio-code-btn"><i class="fa-solid fa-code"></i> Code</button>
               <button type="button" class="btn btn-secondary" id="studio-settings-btn"><i class="fa-solid fa-gear"></i> Settings</button>
+              <button type="button" class="btn btn-secondary" id="studio-preview-btn"><i class="fa-solid fa-eye"></i> Preview</button>
             </div>
           </div>
 
@@ -517,6 +521,16 @@
             <div class="studio-pop" id="studio-bg-pop" style="display: none;">
               <div class="studio-pop-title"><span><i class="fa-solid fa-image"></i> Background</span><button type="button" class="modal-close" data-close-pop="studio-bg-pop">&#10005;</button></div>
               <div class="bg-thumb-grid" id="bg-presets-container"></div>
+              <div class="form-group" style="margin: 10px 0 0;">
+                <label>Effects</label>
+                <div class="fx-row" id="studio-fx-row">
+                  <button type="button" data-fx="none"><i class="fa-solid fa-ban"></i>None</button>
+                  <button type="button" data-fx="rain"><i class="fa-solid fa-cloud-rain"></i>Rain</button>
+                  <button type="button" data-fx="snow"><i class="fa-solid fa-snowflake"></i>Snow</button>
+                  <button type="button" data-fx="stars"><i class="fa-solid fa-star"></i>Stars</button>
+                  <button type="button" data-fx="fireflies"><i class="fa-solid fa-bug"></i>Flies</button>
+                </div>
+              </div>
               <div class="form-group" style="margin: 10px 0 0;">
                 <label>Or paste an image / video URL</label>
                 <div style="display: flex; gap: 6px;">
