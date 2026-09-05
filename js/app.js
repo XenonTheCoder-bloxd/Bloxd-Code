@@ -218,6 +218,7 @@
       bio: "Bloxd.io Developer",
       avatar: currentUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.uid}`,
       lastUsernameChange: 0,
+      debugMode: false,
       portfolioBg: DEFAULT_BG,
       portfolioAudio: "",
       audioTitle: "",
@@ -843,6 +844,9 @@
     const cInput = document.getElementById("studio-custom-code-input");
     if (cInput) cInput.value = p.customCode || "";
 
+    const debugToggle = document.getElementById("studio-debug-toggle");
+    if (debugToggle) debugToggle.checked = !!p.debugMode;
+
     paintBg(document.getElementById("stage-bg-layer"), p.portfolioBg);
 
     const card = document.getElementById("studio-card");
@@ -1202,6 +1206,7 @@
           const avatar = document.getElementById("studio-avatar-input")?.value?.trim();
           const discord = document.getElementById("studio-discord-input")?.value;
           const github = document.getElementById("studio-github-input")?.value;
+          const debugMode = !!document.getElementById("studio-debug-toggle")?.checked;
 
           if (newUsername && newUsername.toLowerCase() !== userProfile.username.toLowerCase()) {
             await updateUsernameWithCooldown(newUsername);
@@ -1209,8 +1214,10 @@
 
           saveUserProfileData({
             avatar: avatar || userProfile.avatar,
-            socials: { discord, github }
+            socials: { discord, github },
+            debugMode
           });
+          if (typeof window.__refreshDebugButton === "function") window.__refreshDebugButton();
 
           document.getElementById("studio-settings-pop").style.display = "none";
           showToast("Settings saved!", "success");
@@ -2892,6 +2899,7 @@
               bio: "Bloxd.io Developer",
               avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${username}`,
               lastUsernameChange: 0,
+      debugMode: false,
               portfolioBg: DEFAULT_BG,
               portfolioAudio: "",
               audioTitle: "",
@@ -2970,6 +2978,7 @@
           bio: "Bloxd.io Developer",
           avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${val.username}`,
           lastUsernameChange: 0,
+      debugMode: false,
           portfolioBg: DEFAULT_BG,
           portfolioAudio: "",
           audioTitle: "",
@@ -3169,6 +3178,7 @@
         localStorage.removeItem("bloxd_auth_session");
         currentUser = null;
         userProfile = null;
+        if (typeof window.__refreshDebugButton === "function") window.__refreshDebugButton();
         document.getElementById("auth-gate-screen")?.classList.remove("hidden");
         showToast("Signed out", "info");
       };
@@ -3177,13 +3187,14 @@
 
 
   // ---------------------------------------------------------------------
-  // Admin-only debug capture panel. Not visible to regular visitors -
-  // only renders once isAdminUser resolves true. Captures console output,
-  // uncaught errors, unhandled promise rejections, and layout overflow
-  // (the same check used to track down the sidebar-nav scrollbar bug),
-  // all timestamped and tagged with the active view. Exists so a bug can
-  // be captured on-device (phone included) and handed over as one file
-  // instead of live-narrating DevTools output back and forth.
+  // Debug capture panel. Off by default for everyone - only shows once a
+  // user checks "Enable debug capture tool" in their own Settings, and that
+  // preference is saved to their profile so it follows them across reloads
+  // and devices. Captures console output, uncaught errors, unhandled
+  // promise rejections, and layout overflow, all timestamped and tagged
+  // with the active view. Exists so a bug can be captured on-device (phone
+  // included) and handed over as one file instead of live-narrating
+  // DevTools output back and forth.
   (function setupDebugCapture() {
     const buffer = [];
     let capturing = false;
@@ -3239,24 +3250,16 @@
 
     function buildPanel() {
       if (document.getElementById("xenon-debug-btn")) return;
+      window.__debugPanelBuilt = true;
 
-      // Lives in the header, not floating over page content - the header is a
-      // fixed strip with nothing else draggable in it, so this can never end up
-      // silently sitting on top of (and eating clicks meant for) something like
-      // a user's draggable portfolio card or its music widget the way a
-      // page-floating button could.
       const btn = document.createElement("button");
       btn.id = "xenon-debug-btn";
-      btn.className = "btn btn-secondary";
-      btn.title = "Debug capture";
-      btn.innerHTML = '<i class="fa-solid fa-bug" style="color:#ff4444;"></i>';
-      btn.style.cssText = "flex-shrink:0;";
-      const headerRight = document.querySelector(".header-right");
-      if (headerRight) {
-        headerRight.insertBefore(btn, headerRight.firstChild);
-      } else {
-        document.body.appendChild(btn);
-      }
+      btn.innerHTML = '<i class="fa-solid fa-bug"></i>';
+      btn.style.cssText =
+        "position:fixed;bottom:16px;right:16px;width:40px;height:40px;border-radius:50%;" +
+        "background:#ff4444;color:#fff;border:none;z-index:999999;cursor:pointer;" +
+        "font-size:16px;box-shadow:0 4px 12px rgba(0,0,0,0.5);";
+      document.body.appendChild(btn);
 
       const panel = document.createElement("div");
       panel.id = "xenon-debug-panel";
@@ -3336,12 +3339,29 @@
       setInterval(renderLog, 500);
     }
 
-    // Poll for admin status resolving (custom claim check happens async on
-    // load) rather than hooking every call site that could change it.
-    const adminWatch = setInterval(() => {
-      if (isAdminUser) {
-        buildPanel();
-        clearInterval(adminWatch);
+    function removePanel() {
+      document.getElementById("xenon-debug-btn")?.remove();
+      document.getElementById("xenon-debug-panel")?.remove();
+      window.__debugPanelBuilt = false;
+    }
+
+    // Off by default for everyone, including you - only shows once the
+    // user checks "Enable debug capture tool" in their own profile settings
+    // (Settings > tucked below Reset card position), and that preference is
+    // saved to their Firestore profile, so it follows them across reloads
+    // and devices instead of resetting per-browser.
+    window.__refreshDebugButton = function () {
+      if (userProfile?.debugMode) {
+        if (!window.__debugPanelBuilt) buildPanel();
+      } else {
+        removePanel();
+      }
+    };
+
+    const profileWatch = setInterval(() => {
+      if (userProfile) {
+        window.__refreshDebugButton();
+        clearInterval(profileWatch);
       }
     }, 1000);
   })();
