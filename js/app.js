@@ -20,10 +20,13 @@
   let currentUser = null;
   let userProfile = null;
 
-  const ADMIN_USERNAMES = ["ren"];
+  // Claude Security Patch: this now matches the UID allowlist in the Firestore rules exactly.
+  // Username-based admin checks were client-spoofable; this only controls what the UI *shows* -
+  // the actual permission is enforced server-side by the rules, this just keeps them in sync.
+  const ADMIN_UIDS = ["9YnxVrC58RNQ9wOWC7sdaxtxID83"];
 
   function isAdmin() {
-    return ADMIN_USERNAMES.includes((userProfile?.username || "").toLowerCase());
+    return !!(currentUser && ADMIN_UIDS.includes(currentUser.uid));
   }
 
   function dedupeRegistry() {
@@ -136,7 +139,8 @@
 
   const RESERVED_USERNAMES = [
     "admin", "administrator", "root", "system", "bloxd", "bloxdcode", "api", "auth",
-    "support", "official", "mod", "moderator", "staff", "dev", "developer", "help"
+    "support", "official", "mod", "moderator", "staff", "dev", "developer", "help",
+    "ren"
   ];
 
   function normalizeLeet(text) {
@@ -168,8 +172,7 @@
     if (clean.startsWith("-") || clean.endsWith("-") || clean.startsWith("_") || clean.endsWith("_")) {
       return { valid: false, error: "Username cannot start or end with a hyphen or underscore." };
     }
-    // Claude Security Patch: block admin usernames too, not just the generic reserved list
-    if (RESERVED_USERNAMES.includes(clean) || ADMIN_USERNAMES.map(a => a.toLowerCase()).includes(clean)) {
+    if (RESERVED_USERNAMES.includes(clean)) {
       return { valid: false, error: "This username is reserved." };
     }
     if (containsProfanity(clean)) return { valid: false, error: "Username contains inappropriate language." };
