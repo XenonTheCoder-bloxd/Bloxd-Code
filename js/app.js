@@ -279,6 +279,25 @@
     saveUserProfileData(userProfile);
   }
 
+  function claimSubdomain(name, uid) {
+    if (!db || !firestoreOnline || !name || !uid) return;
+    try {
+      const claimed = JSON.parse(localStorage.getItem("bloxd_claimed_subs") || "{}");
+      if (claimed[name.toLowerCase()]) return;
+      db.collection("subdomains").doc(name.toLowerCase()).set({
+        uid: uid,
+        username: name.toLowerCase(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(() => {
+        try {
+          const c2 = JSON.parse(localStorage.getItem("bloxd_claimed_subs") || "{}");
+          c2[name.toLowerCase()] = 1;
+          localStorage.setItem("bloxd_claimed_subs", JSON.stringify(c2));
+        } catch (e) {}
+      }).catch(() => {});
+    } catch (e) {}
+  }
+
   function saveUserProfileData(data) {
     userProfile = { ...userProfile, ...data };
     localStorage.setItem("bloxd_auth_session", JSON.stringify(userProfile));
@@ -304,6 +323,7 @@
       try {
         db.collection("users").doc(currentUser.uid).set(userProfile, { merge: true }).catch(() => {});
       } catch (e) {}
+      claimSubdomain(userProfile.username, userProfile.uid || currentUser.uid);
     }
 
     updateUserUI();
@@ -355,6 +375,11 @@
     if (db && firestoreOnline && oldName && oldName !== clean) {
       try {
         db.collection("subdomains").doc(oldName).delete().catch(() => {});
+      } catch (e) {}
+      try {
+        const claimed = JSON.parse(localStorage.getItem("bloxd_claimed_subs") || "{}");
+        delete claimed[oldName];
+        localStorage.setItem("bloxd_claimed_subs", JSON.stringify(claimed));
       } catch (e) {}
     }
     saveUserProfileData(userProfile);
@@ -680,6 +705,7 @@
     if (!p) return;
 
     const readOnly = !!publicViewProfile;
+    document.body.classList.toggle("public-mode", readOnly);
     const toolbar = document.querySelector(".studio-toolbar");
     if (toolbar) toolbar.style.display = readOnly ? "none" : "";
     const banner = document.getElementById("public-view-banner");
