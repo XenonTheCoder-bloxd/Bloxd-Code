@@ -3073,10 +3073,25 @@
     initCodes();
     handleProfileDeepLink();
 
+    function closeSidebarDrawer() {
+      document.querySelector(".sidebar")?.classList.remove("open");
+      document.getElementById("sidebar-backdrop")?.classList.remove("open");
+    }
+
+    const mobileMenuBtn = document.getElementById("mobile-menu-btn");
+    if (mobileMenuBtn) {
+      mobileMenuBtn.onclick = () => {
+        document.querySelector(".sidebar")?.classList.toggle("open");
+        document.getElementById("sidebar-backdrop")?.classList.toggle("open");
+      };
+    }
+    document.getElementById("sidebar-backdrop")?.addEventListener("click", closeSidebarDrawer);
+
     document.querySelectorAll(".nav-item[data-view]").forEach(btn => {
       btn.onclick = (e) => {
         e.preventDefault();
         navigateTo(btn.getAttribute("data-view"));
+        closeSidebarDrawer();
       };
     });
 
