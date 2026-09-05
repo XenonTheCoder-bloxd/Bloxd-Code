@@ -99,6 +99,8 @@
   
   <div class="app-layout">
 
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
     
     <aside class="sidebar">
       <div class="sidebar-header">
@@ -156,6 +158,10 @@
       
       
       <header class="app-header">
+        <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+
         <div class="search-bar">
           <i class="fa-solid fa-magnifying-glass" style="color: var(--text-dim); font-size: 12px;"></i>
           <input type="text" id="global-search-input" placeholder="Search codes, scripts, academy, discussions...">
@@ -163,7 +169,7 @@
 
         <div class="header-right">
           <button class="btn btn-primary" onclick="document.getElementById('upload-code-modal').classList.add('active')" style="font-size: 12px; padding: 5px 12px;">
-            <i class="fa-solid fa-cloud-arrow-up"></i> Upload Code
+            <i class="fa-solid fa-cloud-arrow-up"></i> <span>Upload Code</span>
           </button>
           <button class="btn btn-secondary" id="header-auth-btn" title="Sign Out">
             <i class="fa-solid fa-right-from-bracket"></i>
