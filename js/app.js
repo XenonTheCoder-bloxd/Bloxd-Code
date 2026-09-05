@@ -22,6 +22,42 @@
   let currentUser = null;
   let userProfile = null;
 
+  const ADMIN_USERNAMES = ["ren"];
+
+  function isAdmin() {
+    return ADMIN_USERNAMES.includes((userProfile?.username || "").toLowerCase());
+  }
+
+  function dedupeRegistry() {
+    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
+    const byUid = {};
+    Object.keys(registry).forEach(k => {
+      const u = registry[k];
+      if (!u) return;
+      const uid = u.uid || ("name:" + k);
+      if (!byUid[uid]) byUid[uid] = [];
+      byUid[uid].push(k);
+    });
+    const ownName = (userProfile?.username || "").toLowerCase();
+    let changed = false;
+    Object.values(byUid).forEach(keys => {
+      if (keys.length < 2) return;
+      let keep = keys[0];
+      if (ownName && keys.includes(ownName)) {
+        keep = ownName;
+      } else {
+        keep = keys.slice().sort((a, b) => ((registry[b]?.profileViews || 0) - (registry[a]?.profileViews || 0)))[0];
+      }
+      keys.forEach(k => {
+        if (k !== keep) {
+          delete registry[k];
+          changed = true;
+        }
+      });
+    });
+    if (changed) localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
+  }
+
   try {
     if (window.firebase) {
       firebase.initializeApp(firebaseConfig);
@@ -1523,6 +1559,9 @@
       return;
     }
 
+    const ownName = (userProfile?.username || "").toLowerCase();
+    const admin = isAdmin();
+
     container.innerHTML = list.slice(0, 5).map(c => `
       <div class="dev-creator-mini-card" onclick="window.openDevProfile('${c.username}')" style="cursor:pointer;" title="View ${escapeHtml(c.username)}'s portfolio">
         <div class="creator-avatar-thumb" style="overflow:hidden;display:flex;align-items:center;justify-content:center;background:#111;">
@@ -1532,9 +1571,12 @@
           }
         </div>
         <div style="flex:1;min-width:0;">
-          <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
             <strong style="font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.username)}</strong>
-            <span class="nav-badge" style="font-size:10.5px;padding:2px 6px;"><i class="fa-regular fa-eye"></i> ${c.profileViews}</span>
+            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+              <span class="nav-badge" style="font-size:10.5px;padding:2px 6px;"><i class="fa-regular fa-eye"></i> ${c.profileViews}</span>
+              ${admin && c.username.toLowerCase() !== ownName ? `<button type="button" class="mini-del-btn" onclick="event.stopPropagation();window.deleteDevProfile('${c.username}')" title="Delete ${escapeHtml(c.username)}"><i class="fa-solid fa-trash"></i></button>` : ""}
+            </div>
           </div>
           <div style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono);">${c.username}.bloxdcode.com</div>
         </div>
@@ -1613,8 +1655,59 @@
       viewsEl.innerHTML = `<i class="fa-regular fa-eye"></i> ${n} view${n === 1 ? "" : "s"}`;
     }
 
+    const delBtn = document.getElementById("view-profile-delete");
+    if (delBtn) {
+      const showDel = isAdmin() && key !== ownName;
+      delBtn.style.display = showDel ? "block" : "none";
+      delBtn.onclick = () => {
+        modal.classList.remove("active");
+        window.deleteDevProfile(dev.username);
+      };
+    }
+
     modal.classList.add("active");
     renderDashboardCreators();
+  };
+
+  window.deleteDevProfile = async function(username) {
+    if (!isAdmin()) return;
+    const key = String(username || "").toLowerCase().replace(/[^a-z0-9_\-]/g, "");
+    if (!key) return;
+    if (key === (userProfile?.username || "").toLowerCase()) {
+      showToast("You can't delete your own profile.", "error");
+      return;
+    }
+    if (!confirm(`Delete ${key}'s profile and all their posts and codes?`)) return;
+
+    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
+    const target = registry[key];
+    delete registry[key];
+    localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
+
+    const codes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]")
+      .filter(c => String(c.author || "").toLowerCase() !== key);
+    localStorage.setItem("bloxd_community_codes", JSON.stringify(codes));
+
+    forumPosts = forumPosts.filter(p => String(p.author || "").toLowerCase() !== key);
+    localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
+
+    if (db && firestoreOnline) {
+      try {
+        const q = await db.collection("users").where("username", "==", key).get();
+        q.forEach(d => {
+          try { d.ref.delete().catch(() => {}); } catch (e) {}
+        });
+        db.collection("subdomains").doc(key).delete().catch(() => {});
+        if (target && target.uid) {
+          db.collection("users").doc(target.uid).delete().catch(() => {});
+        }
+      } catch (e) {}
+    }
+
+    renderDashboard();
+    renderForumFeed();
+    renderCodesGrid(activeCodesCategory);
+    showToast(`Deleted ${key}.`, "success");
   };
 
   function renderDashboardAcademyProgress() {
@@ -2652,6 +2745,7 @@
 
     setupAuthGateActions();
     checkAuthGate();
+    dedupeRegistry();
 
     initDashboard();
     initPortfolio();
