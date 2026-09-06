@@ -11,7 +11,7 @@ export async function onRequestPost({ request, env }) {
   const body = await request.json().catch(() => ({}));
   const newUsername = (body.username || "").trim().toLowerCase();
 
-  if (!/^[a-z0-9_]{3,20}$/.test(newUsername)) {
+    if (!/^[a-z0-9_-]{3,20}$/.test(newUsername)) {
     return Response.json({ error: "Username must be 3-20 characters: letters, numbers, underscores only." }, { status: 400 });
   }
 
