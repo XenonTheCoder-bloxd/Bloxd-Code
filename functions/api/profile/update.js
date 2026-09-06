@@ -7,19 +7,25 @@ export async function onRequestPost({ request, env }) {
   }
 
   const body = await request.json().catch(() => ({}));
+
+  const clampNum = (val, min, max, fallback) => {
+    const n = Number(val);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+  };
+
   const fields = {
     bio: body.bio,
     avatar: body.avatar,
-    avatar_zoom: body.avatarZoom,
-    avatar_pos_x: body.avatarPosX,
-    avatar_pos_y: body.avatarPosY,
+    avatar_zoom: body.avatarZoom === undefined ? undefined : clampNum(body.avatarZoom, 0.5, 3, 1),
+    avatar_pos_x: body.avatarPosX === undefined ? undefined : clampNum(body.avatarPosX, 0, 100, 50),
+    avatar_pos_y: body.avatarPosY === undefined ? undefined : clampNum(body.avatarPosY, 0, 100, 50),
     portfolio_bg: body.portfolioBg,
     portfolio_audio: body.portfolioAudio,
     audio_title: body.audioTitle,
     custom_code: body.customCode,
     portfolio_effect: body.portfolioEffect,
-    card_x: body.cardX,
-    card_y: body.cardY,
+    card_x: body.cardX === undefined ? undefined : clampNum(body.cardX, 0, 100, 50),
+    card_y: body.cardY === undefined ? undefined : clampNum(body.cardY, 0, 100, 50),
     discord: body.discord,
     github: body.github,
     xp: body.xp,
