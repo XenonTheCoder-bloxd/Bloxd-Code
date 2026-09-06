@@ -2923,7 +2923,7 @@
     try {
       requested = new URLSearchParams(window.location.search).get("u") || "";
     } catch (e) {}
-    if (!requested) {
+    if (!requested && !window.location.hostname.endsWith(".pages.dev")) {
       const parts = window.location.hostname.split(".");
       if (parts.length >= 3 && parts[0] && !["www", "app"].includes(parts[0].toLowerCase())) {
         requested = parts[0];
