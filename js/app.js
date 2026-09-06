@@ -4,105 +4,58 @@
   
 
  
-  const firebaseConfig = {
-    apiKey: "AIzaSyCDl2nf8u7vq7JwhcZcIUSK6fa_SjSACP0",
-    authDomain: "bloxdcode.firebaseapp.com",
-    projectId: "bloxdcode",
-    storageBucket: "bloxdcode.firebasestorage.app",
-    messagingSenderId: "888731101557",
-    appId: "1:888731101557:web:a76440941389ed1885cb3c",
-    measurementId: "G-QJ6691YJRQ"
-  };
-
-  let auth = null;
-  let db = null;
-  let firestoreOnline = false;
   let currentUser = null;
   let userProfile = null;
-
-  // Claude Security Patch: admin status now comes from a Firebase custom claim on the user's
-  // real ID token (set server-side via the Admin SDK), not a hardcoded UID list. Nothing in this
-  // file identifies who the admin is anymore - that lives entirely in Firebase Auth.
   let isAdminUser = false;
 
-  async function refreshAdminStatus() {
-    isAdminUser = false;
-    if (currentUser && typeof currentUser.getIdTokenResult === "function") {
-      try {
-        const token = await currentUser.getIdTokenResult(true);
-        isAdminUser = !!(token.claims && token.claims.admin === true);
-      } catch (e) {}
+  // Cloudflare backend helper: every API call goes through here so cookies
+  // (the session) are always sent and JSON parsing/errors are handled once.
+  async function apiFetch(path, options = {}) {
+    const res = await fetch(path, {
+      credentials: "include",
+      headers: options.body ? { "Content-Type": "application/json" } : undefined,
+      ...options
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (!res.ok) {
+      throw new Error((data && data.error) || "Something went wrong. Please try again.");
     }
+    return data;
   }
 
-  function dedupeRegistry() {
-    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-    const byUid = {};
-    Object.keys(registry).forEach(k => {
-      const u = registry[k];
-      if (!u) return;
-      const uid = u.uid || ("name:" + k);
-      if (!byUid[uid]) byUid[uid] = [];
-      byUid[uid].push(k);
-    });
-    const ownName = (userProfile?.username || "").toLowerCase();
-    let changed = false;
-    Object.values(byUid).forEach(keys => {
-      if (keys.length < 2) return;
-      let keep = keys[0];
-      if (ownName && keys.includes(ownName)) {
-        keep = ownName;
-      } else {
-        keep = keys.slice().sort((a, b) => ((registry[b]?.profileViews || 0) - (registry[a]?.profileViews || 0)))[0];
-      }
-      keys.forEach(k => {
-        if (k !== keep) {
-          delete registry[k];
-          changed = true;
-        }
-      });
-    });
-    if (changed) localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
+  // Turns a D1 users-table row (snake_case, flat) into the shape the rest of
+  // this file expects (camelCase, socials/stats nested) - same shape whether
+  // it's your own profile or someone else's.
+  function normalizeProfile(row) {
+    return {
+      uid: row.id,
+      username: row.username,
+      bio: row.bio || "Bloxd.io Developer",
+      avatar: row.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${row.username}`,
+      avatarZoom: row.avatar_zoom || 1,
+      avatarPosX: row.avatar_pos_x ?? 50,
+      avatarPosY: row.avatar_pos_y ?? 50,
+      lastUsernameChange: row.last_username_change || 0,
+      debugMode: !!row.debug_mode,
+      portfolioBg: row.portfolio_bg || DEFAULT_BG,
+      portfolioAudio: row.portfolio_audio || "",
+      audioTitle: row.audio_title || "",
+      customCode: row.custom_code || "",
+      portfolioEffect: row.portfolio_effect || "none",
+      cardX: row.card_x ?? 50,
+      cardY: row.card_y ?? 50,
+      socials: { discord: row.discord || "", github: row.github || "" },
+      stats: { xp: row.xp || 0, lessons: row.lessons || 0 },
+      profileViews: row.profile_views || 0,
+      role: row.role || "user"
+    };
   }
 
-  try {
-    if (window.firebase) {
-      firebase.initializeApp(firebaseConfig);
-
-      // App Check: proves requests are coming from this actual site (via
-      // reCAPTCHA v3, invisible to real visitors) rather than a script
-      // hitting the Firebase API directly - the main thing standing between
-      // "anyone can sign up" and "anyone can sign up 10,000 times in a loop".
-      // RECAPTCHA_V3_SITE_KEY needs to be swapped for the real site key from
-      // the reCAPTCHA admin console before this does anything - see the
-      // setup steps that go with this change.
-      try {
-        if (firebase.appCheck) {
-          firebase.appCheck().activate("6Lc0qKstAAAAAFOKRy__z9cSvJNJRznn5mSCs3Bm", true);
-        }
-      } catch (e) {
-        console.warn("App Check failed to activate:", e);
-      }
-
-      auth = firebase.auth();
-      db = firebase.firestore();
-
-      if (db.settings) {
-        db.settings({
-          merge: true,
-          experimentalAutoDetectLongPolling: true,
-          ignoreUndefinedProperties: true
-        });
-      }
-
-      // Trust the SDK's own connection handling instead of a fragile fetch-probe that
-      // permanently disabled Firestore for the whole session on any hiccup (ad blockers,
-      // strict browser privacy modes, slow networks). Every call site below already has
-      // its own .catch(), so real network failures degrade gracefully per-call anyway.
-      firestoreOnline = true;
-    }
-  } catch (err) {
-    console.warn("Firebase initialized with local fallback:", err);
+  function applySessionUser(row) {
+    currentUser = { uid: row.id, username: row.username };
+    userProfile = normalizeProfile(row);
+    isAdminUser = userProfile.role === "admin";
   }
 
   
@@ -155,147 +108,71 @@
     return { valid: true, username: clean };
   }
 
-  function usernameToEmail(username) {
-    return `${username.toLowerCase()}@bloxdcode.internal`;
-  }
-
   
 
  
   const USERNAME_COOLDOWN_MS = 60 * 60 * 1000;
 
-  function checkAuthGate() {
+  async function checkAuthGate() {
     const authGate = document.getElementById("auth-gate-screen");
-    const localUser = localStorage.getItem("bloxd_auth_session");
-
-    if (localUser) {
-      try {
-        userProfile = JSON.parse(localUser);
-        currentUser = { uid: userProfile.uid, email: userProfile.email || usernameToEmail(userProfile.username) };
+    try {
+      const data = await apiFetch("/api/auth/me");
+      if (data && data.user) {
+        applySessionUser(data.user);
         if (authGate) authGate.classList.add("hidden");
-        updateUserUI();
-        updatePortfolioUI();
-        renderDashboard();
-      } catch (e) {}
-    }
-
-    // Claude Security Patch: this listener used to be skipped entirely when a local cache
-    // existed, so currentUser was never a real Firebase User object after a reload and
-    // isAdmin() (which needs a real ID token) could never resolve true. Always attach it now.
-    if (auth) {
-      auth.onAuthStateChanged(async (user) => {
-        if (user) {
-          currentUser = user;
-          await loadUserProfile(user.uid);
-          await refreshAdminStatus();
-          if (authGate) authGate.classList.add("hidden");
-          if (publicViewUser && userProfile && publicViewUser === (userProfile.username || "").toLowerCase()) {
-            publicViewUser = "";
-            publicViewProfile = null;
-          }
-          updatePortfolioUI();
-        } else if (!localUser) {
-          currentUser = null;
-          userProfile = null;
-          isAdminUser = false;
-          if (authGate && !publicViewUser) authGate.classList.remove("hidden");
+        if (publicViewUser && userProfile && publicViewUser === (userProfile.username || "").toLowerCase()) {
+          publicViewUser = "";
+          publicViewProfile = null;
         }
-        updateUserUI();
-        renderDashboard();
-      }, () => {
-        if (!localUser && authGate && !publicViewUser) authGate.classList.remove("hidden");
-      });
-    } else if (!localUser) {
+        updatePortfolioUI();
+      } else {
+        currentUser = null;
+        userProfile = null;
+        isAdminUser = false;
+        if (authGate && !publicViewUser) authGate.classList.remove("hidden");
+      }
+    } catch (e) {
       if (authGate && !publicViewUser) authGate.classList.remove("hidden");
     }
-  }
-
-  async function loadUserProfile(uid) {
-    if (db && firestoreOnline) {
-      try {
-        const snap = await db.collection("users").doc(uid).get();
-        if (snap.exists) {
-          userProfile = snap.data();
-          localStorage.setItem("bloxd_auth_session", JSON.stringify(userProfile));
-          updateUserUI();
-          updatePortfolioUI();
-          renderDashboard();
-          return;
-        }
-      } catch (e) {
-        
-      }
-    }
-
-    const defaultName = (currentUser.displayName || (currentUser.email ? currentUser.email.split("@")[0] : "coder")).toLowerCase().replace(/[^a-z0-9]/g, "");
-    userProfile = {
-      uid: currentUser.uid,
-      username: defaultName || "coder_" + Math.floor(Math.random() * 1000),
-      bio: "Bloxd.io Developer",
-      avatar: currentUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUser.uid}`,
-      lastUsernameChange: 0,
-      debugMode: false,
-      portfolioBg: DEFAULT_BG,
-      portfolioAudio: "",
-      audioTitle: "",
-      customCode: "",
-      socials: { discord: "", github: "" },
-      stats: { xp: 0, lessons: 0 }
-    };
-
-    saveUserProfileData(userProfile);
-  }
-
-  function claimSubdomain(name, uid) {
-    if (!db || !firestoreOnline || !name || !uid) return;
-    try {
-      const claimed = JSON.parse(localStorage.getItem("bloxd_claimed_subs") || "{}");
-      if (claimed[name.toLowerCase()]) return;
-      db.collection("subdomains").doc(name.toLowerCase()).set({
-        uid: uid,
-        username: name.toLowerCase(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }).then(() => {
-        try {
-          const c2 = JSON.parse(localStorage.getItem("bloxd_claimed_subs") || "{}");
-          c2[name.toLowerCase()] = 1;
-          localStorage.setItem("bloxd_claimed_subs", JSON.stringify(c2));
-        } catch (e) {}
-      }).catch(() => {});
-    } catch (e) {}
+    updateUserUI();
+    renderDashboard();
   }
 
   function saveUserProfileData(data) {
     userProfile = { ...userProfile, ...data };
-    localStorage.setItem("bloxd_auth_session", JSON.stringify(userProfile));
-
-    
-    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-    if (userProfile.username) {
-      const me = userProfile.username.toLowerCase();
-      Object.keys(registry).forEach(k => {
-        if (k !== me && registry[k] && registry[k].uid === userProfile.uid) {
-          delete registry[k];
-        }
-      });
-      const existing = registry[me] || {};
-      if (userProfile.profileViews == null && existing.profileViews != null) {
-        userProfile.profileViews = existing.profileViews;
-      }
-      registry[me] = userProfile;
-      localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
-    }
-
-    if (db && firestoreOnline && currentUser) {
-      try {
-        db.collection("users").doc(currentUser.uid).set(userProfile, { merge: true }).catch(() => {});
-      } catch (e) {}
-      claimSubdomain(userProfile.username, userProfile.uid || currentUser.uid);
-    }
-
     updateUserUI();
     updatePortfolioUI();
     renderDashboard();
+
+    if (!currentUser) return;
+
+    const payload = {};
+    if (data.avatar !== undefined) payload.avatar = data.avatar;
+    if (data.bio !== undefined) payload.bio = data.bio;
+    if (data.portfolioBg !== undefined) payload.portfolioBg = data.portfolioBg;
+    if (data.portfolioAudio !== undefined) payload.portfolioAudio = data.portfolioAudio;
+    if (data.audioTitle !== undefined) payload.audioTitle = data.audioTitle;
+    if (data.customCode !== undefined) payload.customCode = data.customCode;
+    if (data.portfolioEffect !== undefined) payload.portfolioEffect = data.portfolioEffect;
+    if (data.cardX !== undefined) payload.cardX = data.cardX;
+    if (data.cardY !== undefined) payload.cardY = data.cardY;
+    if (data.avatarZoom !== undefined) payload.avatarZoom = data.avatarZoom;
+    if (data.avatarPosX !== undefined) payload.avatarPosX = data.avatarPosX;
+    if (data.avatarPosY !== undefined) payload.avatarPosY = data.avatarPosY;
+    if (data.debugMode !== undefined) payload.debugMode = data.debugMode;
+    if (data.socials !== undefined) {
+      if (data.socials.discord !== undefined) payload.discord = data.socials.discord;
+      if (data.socials.github !== undefined) payload.github = data.socials.github;
+    }
+    if (data.stats !== undefined) {
+      if (data.stats.xp !== undefined) payload.xp = data.stats.xp;
+      if (data.stats.lessons !== undefined) payload.lessons = data.stats.lessons;
+    }
+    if (Object.keys(payload).length === 0) return;
+
+    apiFetch("/api/profile/update", { method: "POST", body: JSON.stringify(payload) }).catch(() => {
+      showToast("Saved locally, but couldn't sync to the server - check your connection.", "error");
+    });
   }
 
   async function updateUsernameWithCooldown(newUsername) {
@@ -305,51 +182,16 @@
 
     if (clean === userProfile.username) return;
 
-    const now = Date.now();
-    const lastChange = userProfile.lastUsernameChange || 0;
-    const elapsed = now - lastChange;
-
-    if (elapsed < USERNAME_COOLDOWN_MS) {
-      const minutesLeft = Math.ceil((USERNAME_COOLDOWN_MS - elapsed) / 60000);
-      throw new Error(`Username cooldown active. You can change your username again in ${minutesLeft} minute(s).`);
+    const data = await apiFetch("/api/profile/username", {
+      method: "POST",
+      body: JSON.stringify({ username: clean })
+    });
+    if (data && data.username) {
+      userProfile.username = data.username;
+      userProfile.lastUsernameChange = Date.now();
+      currentUser.username = data.username;
     }
-
-    
-    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-    if (registry[clean] && registry[clean].uid !== userProfile.uid) {
-      throw new Error(`The username '${clean}' is already taken.`);
-    }
-
-    if (db && firestoreOnline) {
-      try {
-        const snap = await db.collection("subdomains").doc(clean).get();
-        if (snap.exists && snap.data().uid !== userProfile.uid) {
-          throw new Error(`The username '${clean}' is already taken.`);
-        }
-        await db.collection("subdomains").doc(clean).set({
-          uid: userProfile.uid,
-          username: clean,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }).catch(() => {});
-      } catch (err) {
-        if (err.message && err.message.includes("already taken")) throw err;
-      }
-    }
-
-    const oldName = (userProfile.username || "").toLowerCase();
-    userProfile.username = clean;
-    userProfile.lastUsernameChange = now;
-    if (db && firestoreOnline && oldName && oldName !== clean) {
-      try {
-        db.collection("subdomains").doc(oldName).delete().catch(() => {});
-      } catch (e) {}
-      try {
-        const claimed = JSON.parse(localStorage.getItem("bloxd_claimed_subs") || "{}");
-        delete claimed[oldName];
-        localStorage.setItem("bloxd_claimed_subs", JSON.stringify(claimed));
-      } catch (e) {}
-    }
-    saveUserProfileData(userProfile);
+    await checkAuthGate();
   }
 
    
@@ -910,9 +752,7 @@
 
     const viewsEl = document.getElementById("stage-views");
     if (viewsEl) {
-      const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-      const fresh = registry[(p.username || "").toLowerCase()]?.profileViews;
-      const n = fresh ?? p.profileViews ?? 0;
+      const n = p.profileViews ?? 0;
       viewsEl.innerHTML = `<i class="fa-regular fa-eye"></i> ${n} view${n === 1 ? "" : "s"}`;
     }
 
@@ -1501,6 +1341,19 @@
   let communityCodes = JSON.parse(localStorage.getItem("bloxd_community_codes") || "[]");
   if (!Array.isArray(communityCodes)) communityCodes = [];
 
+  let usersDirectory = [];
+  async function refreshUsersDirectory() {
+    try {
+      const data = await apiFetch("/api/users/directory");
+      if (data && Array.isArray(data.users)) {
+        usersDirectory = data.users;
+        renderDashboard();
+      }
+    } catch (e) {
+      console.warn("Failed to load user directory:", e);
+    }
+  }
+
   function initForum() {
     renderForumFeed();
     subscribeForumPosts();
@@ -1605,6 +1458,18 @@
     }).join("");
   }
 
+  // Shared upload helper: sends a file to R2 via the backend, used by both
+  // forum post media and community code screenshots.
+  async function uploadFile(file, folder) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("folder", folder);
+    const res = await fetch("/api/upload", { method: "POST", credentials: "include", body: formData });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error((data && data.error) || "Upload failed.");
+    return data;
+  }
+
   function deleteForumPost(postId) {
     const post = forumPosts.find((p) => p.id === postId);
     if (!post) return;
@@ -1615,12 +1480,10 @@
     renderForumFeed();
     renderDashboard();
 
-    if (db && firestoreOnline && post.docId) {
-      db.collection("forum_posts").doc(post.docId).delete().catch((err) => {
-        console.warn("Failed to delete post from Firestore:", err);
-        showToast("Deleted locally, but couldn't remove it from the server.", "error");
-      });
-    }
+    apiFetch("/api/forum/delete", { method: "POST", body: JSON.stringify({ postId }) }).catch((err) => {
+      console.warn("Failed to delete post from server:", err);
+      showToast("Deleted locally, but couldn't remove it from the server.", "error");
+    });
   }
 
   function setupForum() {
@@ -1673,27 +1536,37 @@
         submitBtn.disabled = true;
         submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Publishing...`;
 
-        const newPost = {
-          id: "post_" + Date.now(),
-          uid: currentUser?.uid || "",
-          author: userProfile?.username || "Anonymous",
-          title,
-          category,
-          content,
-          timestamp: Date.now(),
-          mediaUrl: ""
-        };
+        (async () => {
+          try {
+            let mediaKey = null;
+            let mediaUrl = "";
+            if (fileInput && fileInput.files && fileInput.files[0]) {
+              const uploaded = await uploadFile(fileInput.files[0], "forum");
+              mediaKey = uploaded.key;
+              mediaUrl = uploaded.url;
+            }
 
-        if (fileInput && fileInput.files && fileInput.files[0]) {
-          const r = new FileReader();
-          r.onload = (ev) => {
-            newPost.mediaUrl = ev.target.result;
-            finalizePost(newPost, submitBtn);
-          };
-          r.readAsDataURL(fileInput.files[0]);
-        } else {
-          finalizePost(newPost, submitBtn);
-        }
+            const created = await apiFetch("/api/forum/posts", {
+              method: "POST",
+              body: JSON.stringify({ title, category, content, mediaKey })
+            });
+
+            finalizePost({
+              id: String(created.id),
+              uid: currentUser?.uid || "",
+              author: userProfile?.username || "Anonymous",
+              title,
+              category,
+              content,
+              timestamp: Date.now(),
+              mediaUrl
+            }, submitBtn);
+          } catch (err) {
+            showToast(err.message || "Couldn't publish - check your connection.", "error");
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Publish Discussion`;
+          }
+        })();
       };
     }
   }
@@ -1701,22 +1574,6 @@
   function finalizePost(newPost, btn) {
     forumPosts.unshift(newPost);
     localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
-
-    // This used to be the only place a post was stored - purely per-browser,
-    // which is why nobody else ever saw a post you made. The local write
-    // above stays for instant/offline feedback; this is what actually makes
-    // it visible to everyone else. subscribeForumPosts()'s onSnapshot below
-    // reconciles forumPosts with the real canonical list shortly after.
-    if (db && firestoreOnline) {
-      db.collection("forum_posts").add(newPost).then((ref) => {
-        // Remember the real Firestore doc id so this exact post can be
-        // deleted later by id lookup instead of a where() query every time.
-        ref.update({ docId: ref.id }).catch(() => {});
-      }).catch((err) => {
-        console.warn("Failed to publish discussion to Firestore:", err);
-        showToast("Saved locally, but couldn't publish for others to see - check your connection.", "error");
-      });
-    }
 
     document.getElementById("new-post-title").value = "";
     document.getElementById("new-post-content").value = "";
@@ -1733,26 +1590,37 @@
   }
 
   let forumUnsub = null;
-  function subscribeForumPosts() {
-    if (!db || !firestoreOnline || forumUnsub) return;
+  async function loadForumPostsFromServer() {
     try {
-      forumUnsub = db.collection("forum_posts")
-        .orderBy("timestamp", "desc")
-        .limit(200)
-        .onSnapshot((snap) => {
-          const live = snap.docs.map((d) => d.data());
-          if (live.length) {
-            forumPosts = live;
-            localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
-            renderForumFeed();
-            renderDashboard();
-          }
-        }, (err) => {
-          console.warn("Forum sync error:", err);
-        });
+      const data = await apiFetch("/api/forum/posts");
+      if (data && Array.isArray(data.posts)) {
+        forumPosts = data.posts.map(p => ({
+          id: String(p.id),
+          uid: p.author_id,
+          author: p.author,
+          authorAvatar: p.author_avatar,
+          title: p.title,
+          category: p.category,
+          content: p.content,
+          timestamp: p.created_at,
+          mediaUrl: p.media_url || "",
+          upvotes: p.upvotes || 0
+        }));
+        localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
+        renderForumFeed();
+        renderDashboard();
+      }
     } catch (e) {
-      console.warn("Failed to subscribe to forum posts:", e);
+      console.warn("Forum sync error:", e);
     }
+  }
+
+  // Polls every 10s instead of a live Firestore listener - simplest reliable
+  // way to keep the feed in sync without adding a websocket/Durable Object layer.
+  function subscribeForumPosts() {
+    if (forumUnsub) return;
+    loadForumPostsFromServer();
+    forumUnsub = setInterval(loadForumPostsFromServer, 10000);
   }
 
   
@@ -1779,22 +1647,8 @@
     const codesCountEl = document.getElementById("stat-codes-count");
     if (codesCountEl) codesCountEl.textContent = codes.length;
 
-    // "Registered Developers" used to count the local per-browser cache of
-    // whichever profiles you personally happened to view - never the real
-    // total. Query the actual users collection instead.
     const devsCountEl = document.getElementById("stat-devs-count");
-    if (devsCountEl) {
-      if (db && firestoreOnline) {
-        db.collection("users").get().then((snap) => {
-          devsCountEl.textContent = snap.size;
-        }).catch((err) => {
-          console.warn("Failed to load developer count:", err);
-        });
-      } else {
-        const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-        devsCountEl.textContent = Object.keys(registry).length;
-      }
-    }
+    if (devsCountEl) devsCountEl.textContent = usersDirectory.length;
 
     const xpCountEl = document.getElementById("stat-xp-count");
     if (xpCountEl) xpCountEl.textContent = (userProfile?.stats?.xp || 0) + " XP";
@@ -1886,19 +1740,16 @@
     const container = document.getElementById("dashboard-creators-list");
     if (!container) return;
 
-    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-    let list = Object.values(registry)
-      .filter(u => u && u.username)
-      .map(u => ({
-        username: u.username,
-        xp: u.stats?.xp || 0,
-        profileViews: u.profileViews || 0,
-        bio: u.bio || "Bloxd.io Developer",
-        avatar: u.avatar || "",
-        avatarZoom: u.avatarZoom || 1,
-        avatarPosX: u.avatarPosX ?? 50,
-        avatarPosY: u.avatarPosY ?? 50
-      }));
+    let list = usersDirectory.map(u => ({
+      username: u.username,
+      xp: u.xp || 0,
+      profileViews: u.profile_views || 0,
+      bio: u.bio || "Bloxd.io Developer",
+      avatar: u.avatar || "",
+      avatarZoom: u.avatar_zoom || 1,
+      avatarPosX: u.avatar_pos_x ?? 50,
+      avatarPosY: u.avatar_pos_y ?? 50
+    }));
 
     list.sort((a, b) => (b.profileViews - a.profileViews) || (b.xp - a.xp));
 
@@ -1949,44 +1800,16 @@
   async function resolveDevProfile(username) {
     const key = String(username || "").toLowerCase().replace(/[^a-z0-9_\-]/g, "");
     if (!key) return null;
-    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-    if (registry[key]) return registry[key];
-    if (db && firestoreOnline) {
-      try {
-        const sub = await db.collection("subdomains").doc(key).get();
-        if (sub.exists && sub.data() && sub.data().uid) {
-          const usnap = await db.collection("users").doc(sub.data().uid).get();
-          if (usnap.exists) {
-            registry[key] = usnap.data();
-            localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
-            return registry[key];
-          }
-        }
-      } catch (e) {}
-      try {
-        const q = await db.collection("users").where("username", "==", key).limit(1).get();
-        if (!q.empty) {
-          registry[key] = q.docs[0].data();
-          localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
-          return registry[key];
-        }
-      } catch (e) {}
-    }
-    return null;
-  }
-
-  function countProfileView(dev) {
-    const key = String(dev.username || "").toLowerCase();
-    const ownName = (userProfile?.username || "").toLowerCase();
-    if (!key || key === ownName) return;
-    dev.profileViews = (dev.profileViews || 0) + 1;
-    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-    registry[key] = dev;
-    localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
-    if (db && firestoreOnline && dev.uid) {
-      try {
-        db.collection("users").doc(dev.uid).set({ profileViews: dev.profileViews }, { merge: true }).catch(() => {});
-      } catch (e) {}
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(key)}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data || !data.user) return null;
+      // Server already counted this view (see the [username].js endpoint),
+      // so no separate client-side view-counting call is needed here.
+      return normalizeProfile(data.user);
+    } catch (e) {
+      return null;
     }
   }
 
@@ -1999,7 +1822,6 @@
 
     const key = String(dev.username || "").toLowerCase();
     const ownName = (userProfile?.username || "").toLowerCase();
-    countProfileView(dev);
 
     const modal = document.getElementById("view-profile-modal");
     if (!modal) return;
@@ -2064,35 +1886,18 @@
     }
     if (!confirm(`Delete ${key}'s profile and all their posts and codes?`)) return;
 
-    const registry = JSON.parse(localStorage.getItem("bloxd_users_db") || "{}");
-    const target = registry[key];
-    delete registry[key];
-    localStorage.setItem("bloxd_users_db", JSON.stringify(registry));
-
     communityCodes = communityCodes.filter(c => String(c.author || "").toLowerCase() !== key);
     localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
 
     forumPosts = forumPosts.filter(p => String(p.author || "").toLowerCase() !== key);
     localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
 
-    if (db && firestoreOnline) {
-      try {
-        const q = await db.collection("users").where("username", "==", key).get();
-        q.forEach(d => {
-          try { d.ref.delete().catch(() => {}); } catch (e) {}
-        });
-        db.collection("subdomains").doc(key).delete().catch(() => {});
-        if (target && target.uid) {
-          db.collection("users").doc(target.uid).delete().catch(() => {});
-        }
-        // These two used to only get scrubbed from the local cache - their
-        // actual Firestore copies survived, so deleting someone's profile
-        // didn't really delete their posts/codes for anyone else.
-        const theirPosts = await db.collection("forum_posts").where("author", "==", key).get();
-        theirPosts.forEach(d => d.ref.delete().catch(() => {}));
-        const theirCodes = await db.collection("community_codes").where("author", "==", key).get();
-        theirCodes.forEach(d => d.ref.delete().catch(() => {}));
-      } catch (e) {}
+    usersDirectory = usersDirectory.filter(u => String(u.username || "").toLowerCase() !== key);
+
+    try {
+      await apiFetch("/api/admin/delete-user", { method: "POST", body: JSON.stringify({ username: key }) });
+    } catch (e) {
+      console.warn("Failed to delete user on server:", e);
     }
 
     renderDashboard();
@@ -2783,35 +2588,41 @@
     renderCodesGrid(activeCodesCategory);
     renderDashboard();
 
-    if (db && firestoreOnline && entry.docId) {
-      db.collection("community_codes").doc(entry.docId).delete().catch((err) => {
-        console.warn("Failed to delete code from Firestore:", err);
-        showToast("Deleted locally, but couldn't remove it from the server.", "error");
-      });
-    }
+    apiFetch("/api/codes/delete", { method: "POST", body: JSON.stringify({ codeId: id }) }).catch((err) => {
+      console.warn("Failed to delete code from server:", err);
+      showToast("Deleted locally, but couldn't remove it from the server.", "error");
+    });
   };
 
   let codesUnsub = null;
-  function subscribeCommunityCodes() {
-    if (!db || !firestoreOnline || codesUnsub) return;
+  async function loadCommunityCodesFromServer() {
     try {
-      codesUnsub = db.collection("community_codes")
-        .orderBy("timestamp", "desc")
-        .limit(200)
-        .onSnapshot((snap) => {
-          const live = snap.docs.map((d) => d.data());
-          if (live.length) {
-            communityCodes = live;
-            localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
-            renderCodesGrid(activeCodesCategory);
-            renderDashboard();
-          }
-        }, (err) => {
-          console.warn("Codes sync error:", err);
-        });
+      const data = await apiFetch("/api/codes/list");
+      if (data && Array.isArray(data.codes)) {
+        communityCodes = data.codes.map(c => ({
+          id: String(c.id),
+          uid: c.author_id,
+          author: c.author,
+          title: c.title,
+          description: c.description,
+          category: c.category,
+          code: c.code,
+          image: c.image_url || "",
+          timestamp: c.created_at
+        }));
+        localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
+        renderCodesGrid(activeCodesCategory);
+        renderDashboard();
+      }
     } catch (e) {
-      console.warn("Failed to subscribe to community codes:", e);
+      console.warn("Codes sync error:", e);
     }
+  }
+
+  function subscribeCommunityCodes() {
+    if (codesUnsub) return;
+    loadCommunityCodesFromServer();
+    codesUnsub = setInterval(loadCommunityCodesFromServer, 10000);
   }
 
   function setupUploadCodeModal() {
@@ -2849,29 +2660,40 @@
         submitBtn.disabled = true;
         submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading...`;
 
-        const entry = {
-          id: "code_" + Date.now(),
-          uid: currentUser?.uid || "",
-          author: userProfile?.username || "Anonymous",
-          title,
-          description,
-          category,
-          code,
-          image: "",
-          timestamp: Date.now()
-        };
-
         const imgInput = document.getElementById("upload-code-image-file");
-        if (imgInput && imgInput.files && imgInput.files[0]) {
-          const r = new FileReader();
-          r.onload = (ev) => {
-            entry.image = ev.target.result;
-            finalizeCodeUpload(entry, submitBtn, modal);
-          };
-          r.readAsDataURL(imgInput.files[0]);
-        } else {
-          finalizeCodeUpload(entry, submitBtn, modal);
-        }
+
+        (async () => {
+          try {
+            let imageKey = null;
+            let imageUrl = "";
+            if (imgInput && imgInput.files && imgInput.files[0]) {
+              const uploaded = await uploadFile(imgInput.files[0], "codes");
+              imageKey = uploaded.key;
+              imageUrl = uploaded.url;
+            }
+
+            const created = await apiFetch("/api/codes/list", {
+              method: "POST",
+              body: JSON.stringify({ title, description, category, code, imageKey })
+            });
+
+            finalizeCodeUpload({
+              id: String(created.id),
+              uid: currentUser?.uid || "",
+              author: userProfile?.username || "Anonymous",
+              title,
+              description,
+              category,
+              code,
+              image: imageUrl,
+              timestamp: Date.now()
+            }, submitBtn, modal);
+          } catch (err) {
+            showToast(err.message || "Couldn't upload - check your connection.", "error");
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<i class="fa-solid fa-cloud-arrow-up"></i> Upload Code`;
+          }
+        })();
       };
     }
   }
@@ -2880,15 +2702,6 @@
     const allCodes = communityCodes;
     allCodes.unshift(entry);
     localStorage.setItem("bloxd_community_codes", JSON.stringify(allCodes));
-
-    if (db && firestoreOnline) {
-      db.collection("community_codes").add(entry).then((ref) => {
-        ref.update({ docId: ref.id }).catch(() => {});
-      }).catch((err) => {
-        console.warn("Failed to publish code to Firestore:", err);
-        showToast("Saved locally, but couldn't publish for others to see - check your connection.", "error");
-      });
-    }
 
     
     ["upload-code-title","upload-code-description","upload-code-textarea"].forEach(id => {
@@ -3018,32 +2831,12 @@
     const gateSignupBtn = document.getElementById("gate-signup-btn");
     const gateGoogleBtn = document.getElementById("gate-google-btn");
 
-    
     if (gateGoogleBtn) {
-      gateGoogleBtn.onclick = async () => {
-        try {
-          if (auth && window.location.protocol.startsWith("http")) {
-            const provider = new firebase.auth.GoogleAuthProvider();
-            const result = await auth.signInWithPopup(provider);
-            currentUser = result.user;
-            await loadUserProfile(currentUser.uid);
-          } else {
-            
-            const guestName = "google_user_" + Math.floor(Math.random() * 1000);
-            currentUser = { uid: "g_" + Date.now(), email: `${guestName}@gmail.com` };
-            await loadUserProfile(currentUser.uid);
-          }
-          document.getElementById("auth-gate-screen")?.classList.add("hidden");
-          showToast("Signed in with Google!", "success");
-        } catch (err) {
-          // Claude Security Patch: previously this fabricated a fake "signed in" session on ANY
-          // failure (closed popup, blocked popup, etc.) - that let anyone bypass Google auth entirely.
-          showToast("Google sign-in was cancelled or failed. Please try again.", "error");
-        }
+      gateGoogleBtn.onclick = () => {
+        window.location.href = "/api/auth/google";
       };
     }
 
-    
     if (gateLoginBtn) {
       gateLoginBtn.onclick = async (e) => {
         e.preventDefault();
@@ -3055,58 +2848,20 @@
           return;
         }
 
-        const syntheticEmail = usernameToEmail(username);
-
         try {
-          if (auth && window.location.protocol.startsWith("http")) {
-            const userCred = await auth.signInWithEmailAndPassword(syntheticEmail, pass);
-            currentUser = userCred.user;
-            await loadUserProfile(currentUser.uid);
-          } else {
-            currentUser = { uid: "u_" + btoa(username), email: syntheticEmail };
-            userProfile = {
-              uid: currentUser.uid,
-              username: username,
-              bio: "Bloxd.io Developer",
-              avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${username}`,
-              lastUsernameChange: 0,
-      debugMode: false,
-              portfolioBg: DEFAULT_BG,
-              portfolioAudio: "",
-              audioTitle: "",
-              customCode: "",
-              socials: { discord: "", github: "" },
-              stats: { xp: 0, lessons: 0 }
-            };
-            saveUserProfileData(userProfile);
-          }
+          await apiFetch("/api/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ username, password: pass })
+          });
+          await checkAuthGate();
           document.getElementById("auth-gate-screen")?.classList.add("hidden");
           showToast(`Welcome back, ${username}!`, "success");
         } catch (err) {
-          // Claude Security Patch: a rejected password used to fall through to this same fallback
-          // and log the user in anyway. Only genuine connectivity errors get the offline fallback now;
-          // a bad password/username is rejected instead of granting access.
-          const credentialErrorCodes = [
-            "auth/wrong-password",
-            "auth/user-not-found",
-            "auth/invalid-credential",
-            "auth/invalid-email",
-            "auth/user-disabled",
-            "auth/too-many-requests"
-          ];
-          if (err && credentialErrorCodes.includes(err.code)) {
-            showToast("Incorrect username or password.", "error");
-            return;
-          }
-          currentUser = { uid: "u_" + btoa(username), email: syntheticEmail };
-          await loadUserProfile(currentUser.uid);
-          document.getElementById("auth-gate-screen")?.classList.add("hidden");
-          showToast(`Welcome back, ${username}!`, "success");
+          showToast(err.message || "Incorrect username or password.", "error");
         }
       };
     }
 
-    
     if (gateSignupBtn) {
       gateSignupBtn.onclick = async (e) => {
         e.preventDefault();
@@ -3119,48 +2874,22 @@
           return;
         }
 
-        if (!pass || pass.length < 4) {
-          showToast("Password must be at least 4 characters.", "error");
+        if (!pass || pass.length < 8) {
+          showToast("Password must be at least 8 characters.", "error");
           return;
         }
 
-        const syntheticEmail = usernameToEmail(val.username);
-
         try {
-          if (auth && window.location.protocol.startsWith("http")) {
-            const userCred = await auth.createUserWithEmailAndPassword(syntheticEmail, pass);
-            currentUser = userCred.user;
-          } else {
-            currentUser = { uid: "u_" + btoa(val.username), email: syntheticEmail };
-          }
+          await apiFetch("/api/auth/signup", {
+            method: "POST",
+            body: JSON.stringify({ username: val.username, password: pass })
+          });
+          await checkAuthGate();
+          document.getElementById("auth-gate-screen")?.classList.add("hidden");
+          showToast(`Account created for @${val.username}!`, "success");
         } catch (err) {
-          // Claude Security Patch: an "email-already-in-use" error means this username is genuinely
-          // taken - previously it silently created a colliding local-only account instead of blocking.
-          if (err && err.code === "auth/email-already-in-use") {
-            showToast(`The username '${val.username}' is already taken.`, "error");
-            return;
-          }
-          currentUser = { uid: "u_" + btoa(val.username), email: syntheticEmail };
+          showToast(err.message || "Couldn't create account.", "error");
         }
-
-        userProfile = {
-          uid: currentUser.uid,
-          username: val.username,
-          bio: "Bloxd.io Developer",
-          avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${val.username}`,
-          lastUsernameChange: 0,
-      debugMode: false,
-          portfolioBg: DEFAULT_BG,
-          portfolioAudio: "",
-          audioTitle: "",
-          customCode: "",
-          socials: { discord: "", github: "" },
-          stats: { xp: 0, lessons: 0 }
-        };
-        saveUserProfileData(userProfile);
-
-        document.getElementById("auth-gate-screen")?.classList.add("hidden");
-        showToast(`Account created for @${val.username}!`, "success");
       };
     }
 
@@ -3227,7 +2956,6 @@
     }
     publicViewNotFound = false;
     publicViewProfile = dev;
-    countProfileView(dev);
     updatePortfolioUI();
     renderDashboardCreators();
   }
@@ -3243,7 +2971,8 @@
 
     setupAuthGateActions();
     checkAuthGate();
-    dedupeRegistry();
+    refreshUsersDirectory();
+    setInterval(refreshUsersDirectory, 30000);
 
     initDashboard();
     initPortfolio();
@@ -3342,16 +3071,17 @@
 
     const logoutBtn = document.getElementById("header-auth-btn");
     if (logoutBtn) {
-      logoutBtn.onclick = () => {
-        if (auth) {
-          try { auth.signOut(); } catch(e) {}
-        }
-        localStorage.removeItem("bloxd_auth_session");
+      logoutBtn.onclick = async () => {
+        try { await apiFetch("/api/auth/logout", { method: "POST" }); } catch (e) {}
         currentUser = null;
         userProfile = null;
+        isAdminUser = false;
         if (typeof window.__refreshDebugButton === "function") window.__refreshDebugButton();
         document.getElementById("auth-gate-screen")?.classList.remove("hidden");
         showToast("Signed out", "info");
+        renderDashboard();
+        renderForumFeed();
+        renderCodesGrid(activeCodesCategory);
       };
     }
   });
