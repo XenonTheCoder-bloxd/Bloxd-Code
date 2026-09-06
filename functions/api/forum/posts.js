@@ -31,7 +31,8 @@ export async function onRequestPost({ request, env }) {
 
   const body = await request.json().catch(() => ({}));
   const title = (body.title || "").trim();
-  const category = (body.category || "questions").trim();
+  const ALLOWED_CATEGORIES = ["questions", "scripts", "tutorials", "math", "worldgen", "showcase"];
+  const category = ALLOWED_CATEGORIES.includes(body.category) ? body.category : "questions";
   const content = (body.content || "").trim();
   const mediaKey = body.mediaKey || null;
 
