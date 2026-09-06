@@ -1,4 +1,5 @@
 import { verifySession, readCookie } from "../../_lib/auth.js";
+import { freeIfOwnedUpload } from "../../_lib/quota.js";
 
 export async function onRequestPost({ request, env }) {
   const session = await verifySession(readCookie(request, "session"), env.SESSION_SECRET);
@@ -7,6 +8,33 @@ export async function onRequestPost({ request, env }) {
   }
 
   const body = await request.json().catch(() => ({}));
+
+  if (typeof body.customCode === "string" && body.customCode.length > 20000) {
+    return Response.json({ error: "Custom code must be 20,000 characters or fewer." }, { status: 400 });
+  }
+  if (typeof body.bio === "string" && body.bio.length > 500) {
+    return Response.json({ error: "Bio must be 500 characters or fewer." }, { status: 400 });
+  }
+
+  // If avatar/background/audio are being replaced or cleared, free whatever
+  // the OLD value pointed at first - otherwise repeatedly swapping these
+  // leaks quota into orphaned R2 objects that no longer show up anywhere.
+  const mediaFields = ["avatar", "portfolioBg", "portfolioAudio"].filter(f => body[f] !== undefined);
+  if (mediaFields.length > 0) {
+    const current = await env.DB.prepare(
+      "SELECT avatar, portfolio_bg, portfolio_audio FROM users WHERE id = ?"
+    ).bind(session.uid).first();
+
+    if (current) {
+      const oldValueByField = { avatar: current.avatar, portfolioBg: current.portfolio_bg, portfolioAudio: current.portfolio_audio };
+      for (const field of mediaFields) {
+        const oldVal = oldValueByField[field];
+        if (oldVal && oldVal !== body[field]) {
+          await freeIfOwnedUpload(env, oldVal, session.uid);
+        }
+      }
+    }
+  }
 
   const clampNum = (val, min, max, fallback) => {
     const n = Number(val);
