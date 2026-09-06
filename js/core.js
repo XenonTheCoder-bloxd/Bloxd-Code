@@ -1,0 +1,197 @@
+'use strict';
+
+
+  
+
+ 
+  let currentUser = null;
+  let userProfile = null;
+  let isAdminUser = false;
+
+  // Cloudflare backend helper: every API call goes through here so cookies
+  // (the session) are always sent and JSON parsing/errors are handled once.
+  async function apiFetch(path, options = {}) {
+    const res = await fetch(path, {
+      credentials: "include",
+      headers: options.body ? { "Content-Type": "application/json" } : undefined,
+      ...options
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    if (!res.ok) {
+      throw new Error((data && data.error) || "Something went wrong. Please try again.");
+    }
+    return data;
+  }
+
+  // Turns a D1 users-table row (snake_case, flat) into the shape the rest of
+  // this file expects (camelCase, socials/stats nested) - same shape whether
+  // it's your own profile or someone else's.
+  function normalizeProfile(row) {
+    return {
+      uid: row.id,
+      username: row.username,
+      bio: row.bio || "Bloxd.io Developer",
+      avatar: row.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${row.username}`,
+      avatarZoom: row.avatar_zoom || 1,
+      avatarPosX: row.avatar_pos_x ?? 50,
+      avatarPosY: row.avatar_pos_y ?? 50,
+      lastUsernameChange: row.last_username_change || 0,
+      debugMode: !!row.debug_mode,
+      portfolioBg: row.portfolio_bg || DEFAULT_BG,
+      portfolioAudio: row.portfolio_audio || "",
+      audioTitle: row.audio_title || "",
+      customCode: row.custom_code || "",
+      portfolioEffect: row.portfolio_effect || "none",
+      cardX: row.card_x ?? 50,
+      cardY: row.card_y ?? 50,
+      socials: { discord: row.discord || "", github: row.github || "" },
+      stats: { xp: row.xp || 0, lessons: row.lessons || 0 },
+      profileViews: row.profile_views || 0,
+      role: row.role || "user"
+    };
+  }
+
+  function applySessionUser(row) {
+    currentUser = { uid: row.id, username: row.username };
+    userProfile = normalizeProfile(row);
+    isAdminUser = userProfile.role === "admin";
+  }
+
+  
+
+ 
+  const BANNED_WORDS = [
+    "fuck", "shit", "bitch", "asshole", "cunt", "nigger", "nigga", "faggot", "dick",
+    "pussy", "whore", "slut", "cock", "bastard", "nazi", "hitler", "kill", "suicide",
+    "porn", "hentai", "sex", "dildo", "pedophile", "rape", "retard", "fag"
+  ];
+
+  const RESERVED_USERNAMES = [
+    "admin", "administrator", "root", "system", "bloxd", "bloxdcode", "api", "auth",
+    "support", "official", "mod", "moderator", "staff", "dev", "developer", "help"
+  ];
+
+  function normalizeLeet(text) {
+    return text.toLowerCase()
+      .replace(/[@4]/g, "a")
+      .replace(/[3]/g, "e")
+      .replace(/[1!|]/g, "i")
+      .replace(/[0]/g, "o")
+      .replace(/[$5]/g, "s")
+      .replace(/[7]/g, "t")
+      .replace(/[\-_.*+~#^]/g, "");
+  }
+
+  function containsProfanity(text) {
+    if (!text) return false;
+    const norm = normalizeLeet(text);
+    for (const w of BANNED_WORDS) {
+      if (norm.includes(w)) return true;
+    }
+    return false;
+  }
+
+  function validateUsername(username) {
+    if (!username) return { valid: false, error: "Username cannot be empty." };
+    const clean = username.trim().toLowerCase();
+    if (clean.length < 3) return { valid: false, error: "Username must be at least 3 characters." };
+    if (clean.length > 20) return { valid: false, error: "Username cannot exceed 20 characters." };
+    if (!/^[a-z0-9_\-]+$/.test(clean)) return { valid: false, error: "Only letters, numbers, hyphens, and underscores allowed." };
+    if (clean.startsWith("-") || clean.endsWith("-") || clean.startsWith("_") || clean.endsWith("_")) {
+      return { valid: false, error: "Username cannot start or end with a hyphen or underscore." };
+    }
+    if (RESERVED_USERNAMES.includes(clean)) {
+      return { valid: false, error: "This username is reserved." };
+    }
+    if (containsProfanity(clean)) return { valid: false, error: "Username contains inappropriate language." };
+    return { valid: true, username: clean };
+  }
+
+  
+
+ 
+  const USERNAME_COOLDOWN_MS = 60 * 60 * 1000;
+
+  async function checkAuthGate() {
+    const authGate = document.getElementById("auth-gate-screen");
+    try {
+      const data = await apiFetch("/api/auth/me");
+      if (data && data.user) {
+        applySessionUser(data.user);
+        if (authGate) authGate.classList.add("hidden");
+        if (publicViewUser && userProfile && publicViewUser === (userProfile.username || "").toLowerCase()) {
+          publicViewUser = "";
+          publicViewProfile = null;
+        }
+        updatePortfolioUI();
+      } else {
+        currentUser = null;
+        userProfile = null;
+        isAdminUser = false;
+        if (authGate && !publicViewUser) authGate.classList.remove("hidden");
+      }
+    } catch (e) {
+      if (authGate && !publicViewUser) authGate.classList.remove("hidden");
+    }
+    updateUserUI();
+    renderDashboard();
+  }
+
+  function saveUserProfileData(data) {
+    userProfile = { ...userProfile, ...data };
+    updateUserUI();
+    updatePortfolioUI();
+    renderDashboard();
+
+    if (!currentUser) return;
+
+    const payload = {};
+    if (data.avatar !== undefined) payload.avatar = data.avatar;
+    if (data.bio !== undefined) payload.bio = data.bio;
+    if (data.portfolioBg !== undefined) payload.portfolioBg = data.portfolioBg;
+    if (data.portfolioAudio !== undefined) payload.portfolioAudio = data.portfolioAudio;
+    if (data.audioTitle !== undefined) payload.audioTitle = data.audioTitle;
+    if (data.customCode !== undefined) payload.customCode = data.customCode;
+    if (data.portfolioEffect !== undefined) payload.portfolioEffect = data.portfolioEffect;
+    if (data.cardX !== undefined) payload.cardX = data.cardX;
+    if (data.cardY !== undefined) payload.cardY = data.cardY;
+    if (data.avatarZoom !== undefined) payload.avatarZoom = data.avatarZoom;
+    if (data.avatarPosX !== undefined) payload.avatarPosX = data.avatarPosX;
+    if (data.avatarPosY !== undefined) payload.avatarPosY = data.avatarPosY;
+    if (data.debugMode !== undefined) payload.debugMode = data.debugMode;
+    if (data.socials !== undefined) {
+      if (data.socials.discord !== undefined) payload.discord = data.socials.discord;
+      if (data.socials.github !== undefined) payload.github = data.socials.github;
+    }
+    if (data.stats !== undefined) {
+      if (data.stats.xp !== undefined) payload.xp = data.stats.xp;
+      if (data.stats.lessons !== undefined) payload.lessons = data.stats.lessons;
+    }
+    if (Object.keys(payload).length === 0) return;
+
+    apiFetch("/api/profile/update", { method: "POST", body: JSON.stringify(payload) }).catch(() => {
+      showToast("Saved locally, but couldn't sync to the server - check your connection.", "error");
+    });
+  }
+
+  async function updateUsernameWithCooldown(newUsername) {
+    const valid = validateUsername(newUsername);
+    if (!valid.valid) throw new Error(valid.error);
+    const clean = valid.username;
+
+    if (clean === userProfile.username) return;
+
+    const data = await apiFetch("/api/profile/username", {
+      method: "POST",
+      body: JSON.stringify({ username: clean })
+    });
+    if (data && data.username) {
+      userProfile.username = data.username;
+      userProfile.lastUsernameChange = Date.now();
+      currentUser.username = data.username;
+    }
+    await checkAuthGate();
+  }
+
+   
