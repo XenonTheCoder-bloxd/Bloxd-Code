@@ -19,10 +19,14 @@ export async function onRequestGet({ env }) {
 
 export async function onRequestPost({ request, env }) {
   const { verifySession, readCookie } = await import("../../_lib/auth.js");
+  const { checkRateLimit, rateLimitResponse } = await import("../../_lib/ratelimit.js");
   const session = await verifySession(readCookie(request, "session"), env.SESSION_SECRET);
   if (!session) {
     return Response.json({ error: "You must be logged in to upload code." }, { status: 401 });
   }
+
+  const allowed = await checkRateLimit(env.RATE_LIMIT_KV, `rl:codes-create:${session.uid}`, 5, 60);
+  if (!allowed) return rateLimitResponse();
 
   const body = await request.json().catch(() => ({}));
   const title = (body.title || "").trim();
