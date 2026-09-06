@@ -28,8 +28,6 @@ export async function onRequestPost({ request, env }) {
     card_y: body.cardY === undefined ? undefined : clampNum(body.cardY, 0, 100, 50),
     discord: body.discord,
     github: body.github,
-    xp: body.xp,
-    lessons: body.lessons,
     debug_mode: body.debugMode === undefined ? undefined : (body.debugMode ? 1 : 0)
   };
 
