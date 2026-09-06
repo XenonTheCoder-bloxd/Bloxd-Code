@@ -38,6 +38,15 @@ export async function onRequestPost({ request, env }) {
   if (!title || !code) {
     return Response.json({ error: "Title and code are required." }, { status: 400 });
   }
+  if (title.length > 150) {
+    return Response.json({ error: "Title must be 150 characters or fewer." }, { status: 400 });
+  }
+  if (description.length > 1000) {
+    return Response.json({ error: "Description must be 1000 characters or fewer." }, { status: 400 });
+  }
+  if (code.length > 50000) {
+    return Response.json({ error: "Code must be 50,000 characters or fewer." }, { status: 400 });
+  }
 
   const now = Date.now();
   const result = await env.DB.prepare(
