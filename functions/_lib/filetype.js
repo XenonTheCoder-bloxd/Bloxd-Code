@@ -29,11 +29,13 @@ export function detectFileType(bytes) {
   if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) {
     return { ext: "webm", mime: "video/webm" };
   }
-  // ISO base media container: covers mp4, mov, and m4a (box type "ftyp" at offset 4)
+  // ISO base media container: covers mp4, mov, m4a, and HEIC/HEIF (box type "ftyp" at offset 4)
   if (str(4, 4) === "ftyp") {
     const brand = str(8, 4).toLowerCase();
     if (brand.startsWith("m4a")) return { ext: "m4a", mime: "audio/mp4" };
     if (brand.startsWith("qt")) return { ext: "mov", mime: "video/quicktime" };
+    if (["heic", "heix", "hevc", "hevx"].includes(brand)) return { ext: "heic", mime: "image/heic" };
+    if (["mif1", "msf1"].includes(brand)) return { ext: "heif", mime: "image/heif" };
     return { ext: "mp4", mime: "video/mp4" };
   }
 
