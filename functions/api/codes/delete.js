@@ -11,12 +11,22 @@ export async function onRequestPost({ request, env }) {
   if (!allowed) return rateLimitResponse();
 
   const { codeId } = await request.json().catch(() => ({}));
-  const entry = await env.DB.prepare("SELECT author_id FROM community_codes WHERE id = ?").bind(codeId).first();
+  const entry = await env.DB.prepare("SELECT author_id, image_key FROM community_codes WHERE id = ?").bind(codeId).first();
   if (!entry) {
     return Response.json({ error: "Entry not found." }, { status: 404 });
   }
   if (entry.author_id !== session.uid && session.role !== "admin") {
     return Response.json({ error: "Not allowed." }, { status: 403 });
+  }
+
+  if (entry.image_key) {
+    const obj = await env.UPLOADS.head(entry.image_key);
+    await env.UPLOADS.delete(entry.image_key);
+    if (obj) {
+      await env.DB.prepare("UPDATE users SET storage_bytes = MAX(0, storage_bytes - ?) WHERE id = ?")
+        .bind(obj.size, entry.author_id)
+        .run();
+    }
   }
 
   await env.DB.prepare("DELETE FROM community_codes WHERE id = ?").bind(codeId).run();
