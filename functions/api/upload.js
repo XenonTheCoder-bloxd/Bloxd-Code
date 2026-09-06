@@ -1,6 +1,7 @@
 export async function onRequestPost({ request, env }) {
   const { verifySession, readCookie } = await import("../_lib/auth.js");
   const { checkRateLimit, rateLimitResponse } = await import("../_lib/ratelimit.js");
+  const { detectFileType } = await import("../_lib/filetype.js");
   const session = await verifySession(readCookie(request, "session"), env.SESSION_SECRET);
   if (!session) {
     return Response.json({ error: "You must be logged in to upload files." }, { status: 401 });
@@ -20,11 +21,16 @@ export async function onRequestPost({ request, env }) {
     return Response.json({ error: "File too large (5MB max)." }, { status: 400 });
   }
 
-  const ext = (file.name.split(".").pop() || "png").toLowerCase();
-  const key = `${folder}/${session.uid}_${Date.now()}.${ext}`;
+  const header = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+  const detected = detectFileType(header);
+  if (!detected) {
+    return Response.json({ error: "Unsupported or unrecognized file type." }, { status: 400 });
+  }
+
+  const key = `${folder}/${session.uid}_${Date.now()}.${detected.ext}`;
 
   await env.UPLOADS.put(key, file.stream(), {
-    httpMetadata: { contentType: file.type || "application/octet-stream" }
+    httpMetadata: { contentType: detected.mime }
   });
 
   return Response.json({ key, url: `${env.CDN_BASE_URL}/${key}` }, { status: 201 });
