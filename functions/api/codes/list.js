@@ -31,7 +31,8 @@ export async function onRequestPost({ request, env }) {
   const body = await request.json().catch(() => ({}));
   const title = (body.title || "").trim();
   const description = (body.description || "").trim();
-  const category = (body.category || "misc").trim();
+  const ALLOWED_CATEGORIES = ["general", "pvp", "minigames", "worldgen", "admin", "math", "ui", "ai", "economy", "tutorials", "showcase", "bugs"];
+  const category = ALLOWED_CATEGORIES.includes(body.category) ? body.category : "general";
   const code = body.code || "";
   const imageKey = body.imageKey || null;
 
