@@ -9,7 +9,11 @@ export async function onRequestGet({ request, env }) {
   }
 
   const user = await env.DB.prepare(
-    "SELECT id, username, bio, avatar, discord, github, xp, lessons, role FROM users WHERE id = ?"
+    `SELECT id, username, bio, avatar, avatar_zoom, avatar_pos_x, avatar_pos_y,
+            portfolio_bg, portfolio_audio, audio_title, custom_code, portfolio_effect,
+            card_x, card_y, discord, github, xp, lessons, profile_views,
+            last_username_change, debug_mode, role
+     FROM users WHERE id = ?`
   ).bind(session.uid).first();
 
   return Response.json({ user: user || null });
