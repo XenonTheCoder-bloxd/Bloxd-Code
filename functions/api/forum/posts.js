@@ -1,7 +1,7 @@
 export async function onRequestGet({ env }) {
   const { results } = await env.DB.prepare(
-    `SELECT forum_posts.id, forum_posts.title, forum_posts.category, forum_posts.content,
-            forum_posts.media_key, forum_posts.upvotes, forum_posts.created_at,
+    `SELECT forum_posts.id, forum_posts.author_id, forum_posts.title, forum_posts.category,
+            forum_posts.content, forum_posts.media_key, forum_posts.upvotes, forum_posts.created_at,
             users.username AS author, users.avatar AS author_avatar
      FROM forum_posts
      JOIN users ON users.id = forum_posts.author_id
