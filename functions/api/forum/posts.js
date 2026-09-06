@@ -38,6 +38,12 @@ export async function onRequestPost({ request, env }) {
   if (!title || !content) {
     return Response.json({ error: "Title and content are required." }, { status: 400 });
   }
+  if (title.length > 150) {
+    return Response.json({ error: "Title must be 150 characters or fewer." }, { status: 400 });
+  }
+  if (content.length > 5000) {
+    return Response.json({ error: "Post content must be 5000 characters or fewer." }, { status: 400 });
+  }
 
   const now = Date.now();
   const result = await env.DB.prepare(
