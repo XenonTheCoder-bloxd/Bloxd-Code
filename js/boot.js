@@ -84,7 +84,28 @@
       .replace(/'/g, "&#39;");
   }
 
-   
+  const TURNSTILE_SITE_KEY = "0x4AAAAAAEqdfavuP2fQFiEO";
+  let turnstileLoginToken = null;
+  let turnstileSignupToken = null;
+  let turnstileLoginWidgetId = null;
+  let turnstileSignupWidgetId = null;
+
+  window.onTurnstileReady = function () {
+    if (!window.turnstile) return;
+    turnstileLoginWidgetId = turnstile.render("#turnstile-login", {
+      sitekey: TURNSTILE_SITE_KEY,
+      callback: (token) => { turnstileLoginToken = token; },
+      "expired-callback": () => { turnstileLoginToken = null; },
+      "error-callback": () => { turnstileLoginToken = null; }
+    });
+    turnstileSignupWidgetId = turnstile.render("#turnstile-signup", {
+      sitekey: TURNSTILE_SITE_KEY,
+      callback: (token) => { turnstileSignupToken = token; },
+      "expired-callback": () => { turnstileSignupToken = null; },
+      "error-callback": () => { turnstileSignupToken = null; }
+    });
+  };
+
   function setupAuthGateActions() {
     const gateLoginBtn = document.getElementById("gate-login-btn");
     const gateSignupBtn = document.getElementById("gate-signup-btn");
@@ -106,17 +127,24 @@
           showToast("Please enter username and password.", "error");
           return;
         }
+        if (!turnstileLoginToken) {
+          showToast("Please complete the verification.", "error");
+          return;
+        }
 
         try {
           await apiFetch("/api/auth/login", {
             method: "POST",
-            body: JSON.stringify({ username, password: pass })
+            body: JSON.stringify({ username, password: pass, turnstileToken: turnstileLoginToken })
           });
           await checkAuthGate();
           document.getElementById("auth-gate-screen")?.classList.add("hidden");
           showToast(`Welcome back, ${username}!`, "success");
         } catch (err) {
           showToast(err.message || "Incorrect username or password.", "error");
+        } finally {
+          if (turnstileLoginWidgetId !== null) turnstile.reset(turnstileLoginWidgetId);
+          turnstileLoginToken = null;
         }
       };
     }
@@ -137,17 +165,24 @@
           showToast("Password must be at least 8 characters.", "error");
           return;
         }
+        if (!turnstileSignupToken) {
+          showToast("Please complete the verification.", "error");
+          return;
+        }
 
         try {
           await apiFetch("/api/auth/signup", {
             method: "POST",
-            body: JSON.stringify({ username: val.username, password: pass })
+            body: JSON.stringify({ username: val.username, password: pass, turnstileToken: turnstileSignupToken })
           });
           await checkAuthGate();
           document.getElementById("auth-gate-screen")?.classList.add("hidden");
           showToast(`Account created for @${val.username}!`, "success");
         } catch (err) {
           showToast(err.message || "Couldn't create account.", "error");
+        } finally {
+          if (turnstileSignupWidgetId !== null) turnstile.reset(turnstileSignupWidgetId);
+          turnstileSignupToken = null;
         }
       };
     }
@@ -508,11 +543,6 @@
       window.__debugPanelBuilt = false;
     }
 
-    // Off by default for everyone, including you - only shows once the
-    // user checks "Enable debug capture tool" in their own profile settings
-    // (Settings > tucked below Reset card position), and that preference is
-    // saved to their Firestore profile, so it follows them across reloads
-    // and devices instead of resetting per-browser.
     window.__refreshDebugButton = function () {
       if (userProfile?.debugMode) {
         if (!window.__debugPanelBuilt) buildPanel();
@@ -528,4 +558,3 @@
       }
     }, 1000);
   })();
-
