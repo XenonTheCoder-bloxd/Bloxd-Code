@@ -1,9 +1,16 @@
 import { hashPassword, signSession, sessionCookie } from "../../_lib/auth.js";
+import { verifyTurnstile } from "../../_lib/turnstile.js";
 
 export async function onRequestPost({ request, env }) {
   const body = await request.json().catch(() => ({}));
   const username = (body.username || "").trim().toLowerCase();
   const password = body.password || "";
+
+  const ip = request.headers.get("CF-Connecting-IP");
+  const humanVerified = await verifyTurnstile(body.turnstileToken, env.TURNSTILE_SECRET, ip);
+  if (!humanVerified) {
+    return Response.json({ error: "Verification failed. Please try again." }, { status: 400 });
+  }
 
     if (!/^[a-z0-9_-]{3,20}$/.test(username)) {
     return Response.json({ error: "Username must be 3-20 characters: letters, numbers, underscores only." }, { status: 400 });
