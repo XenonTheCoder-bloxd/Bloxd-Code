@@ -415,18 +415,26 @@
         const result = currentActiveLesson.runTest(code);
 
         if (result.pass) {
-          consoleOut.innerHTML += `<span style="color:#ffffff;font-weight:bold;">Passed.</span> +${currentActiveLesson.xp} XP.\n`;
-          
           if (!completedLessons.includes(currentActiveLesson.id)) {
-            completedLessons.push(currentActiveLesson.id);
-            localStorage.setItem("bloxd_completed_lessons", JSON.stringify(completedLessons));
-            const newXp = (userProfile?.stats?.xp || 0) + currentActiveLesson.xp;
-            saveUserProfileData({ stats: { ...userProfile?.stats, xp: newXp } });
+            apiFetch("/api/academy/complete-lesson", {
+              method: "POST",
+              body: JSON.stringify({ lessonId: currentActiveLesson.id })
+            }).then((data) => {
+              completedLessons.push(currentActiveLesson.id);
+              localStorage.setItem("bloxd_completed_lessons", JSON.stringify(completedLessons));
+              userProfile = { ...userProfile, stats: { ...userProfile?.stats, xp: data.xp } };
+              updateUserUI();
+              consoleOut.innerHTML += `<span style="color:#ffffff;font-weight:bold;">Passed.</span> +${data.awarded} XP.\n`;
+              renderAcademyRoadmap();
+              renderDashboard();
+              showToast(`Lesson Completed! +${data.awarded} XP`, "success");
+            }).catch(() => {
+              consoleOut.innerHTML += `<span style="color:#ffffff;font-weight:bold;">Passed.</span>\n`;
+              showToast("Lesson passed, but couldn't sync XP - check your connection.", "error");
+            });
+          } else {
+            consoleOut.innerHTML += `<span style="color:#ffffff;font-weight:bold;">Passed.</span> (already completed)\n`;
           }
-
-          renderAcademyRoadmap();
-          renderDashboard();
-          showToast(`Lesson Completed! +${currentActiveLesson.xp} XP`, "success");
         } else {
           consoleOut.innerHTML += `<span style="color:#ff4444;font-weight:bold;">Failed:</span> ${escapeHtml(result.error)}\n`;
         }
