@@ -1,10 +1,14 @@
 import { verifySession, readCookie } from "../../_lib/auth.js";
+import { checkRateLimit, rateLimitResponse } from "../../_lib/ratelimit.js";
 
 export async function onRequestPost({ request, env }) {
   const session = await verifySession(readCookie(request, "session"), env.SESSION_SECRET);
   if (!session) {
     return Response.json({ error: "You must be logged in." }, { status: 401 });
   }
+
+  const allowed = await checkRateLimit(env.RATE_LIMIT_KV, `rl:forum-delete:${session.uid}`, 10, 60);
+  if (!allowed) return rateLimitResponse();
 
   const { postId } = await request.json().catch(() => ({}));
   const post = await env.DB.prepare("SELECT author_id FROM forum_posts WHERE id = ?").bind(postId).first();
