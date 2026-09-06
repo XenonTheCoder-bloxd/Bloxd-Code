@@ -103,7 +103,7 @@
             <strong style="font-size:13px;color:#fff;">@${escapeHtml(p.author)}</strong>
             <span style="font-size:11px;color:var(--text-dim);">${new Date(p.timestamp).toLocaleDateString()}</span>
           </div>
-          <span class="nav-badge" style="font-size:10px;">${(p.category || "GENERAL").toUpperCase()}</span>
+          <span class="nav-badge" style="font-size:10px;">${escapeHtml((p.category || "GENERAL").toUpperCase())}</span>
         </div>
         <h4 style="font-size:14.5px;color:#fff;margin-bottom:6px;font-weight:600;">${escapeHtml(p.title)}</h4>
         <div style="font-size:12.5px;color:var(--text-muted);line-height:1.5;">${parseCodeInPost(p.content)}</div>
