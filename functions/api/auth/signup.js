@@ -5,7 +5,7 @@ export async function onRequestPost({ request, env }) {
   const username = (body.username || "").trim().toLowerCase();
   const password = body.password || "";
 
-  if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+    if (!/^[a-z0-9_-]{3,20}$/.test(username)) {
     return Response.json({ error: "Username must be 3-20 characters: letters, numbers, underscores only." }, { status: 400 });
   }
   if (password.length < 8) {
