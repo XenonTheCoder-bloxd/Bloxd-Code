@@ -17,12 +17,17 @@ export async function onRequestGet({ env }) {
   return Response.json({ posts });
 }
 
+import { verifySession, readCookie } from "../../_lib/auth.js";
+import { checkRateLimit, rateLimitResponse } from "../../_lib/ratelimit.js";
+
 export async function onRequestPost({ request, env }) {
-  const { verifySession, readCookie } = await import("../../_lib/auth.js");
   const session = await verifySession(readCookie(request, "session"), env.SESSION_SECRET);
   if (!session) {
     return Response.json({ error: "You must be logged in to post." }, { status: 401 });
   }
+
+  const allowed = await checkRateLimit(env.RATE_LIMIT_KV, `rl:forum-post:${session.uid}`, 5, 60);
+  if (!allowed) return rateLimitResponse();
 
   const body = await request.json().catch(() => ({}));
   const title = (body.title || "").trim();
