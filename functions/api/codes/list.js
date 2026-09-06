@@ -1,8 +1,8 @@
 export async function onRequestGet({ env }) {
   const { results } = await env.DB.prepare(
-    `SELECT community_codes.id, community_codes.title, community_codes.description,
-            community_codes.category, community_codes.code, community_codes.image_key,
-            community_codes.created_at, users.username AS author
+    `SELECT community_codes.id, community_codes.author_id, community_codes.title,
+            community_codes.description, community_codes.category, community_codes.code,
+            community_codes.image_key, community_codes.created_at, users.username AS author
      FROM community_codes
      JOIN users ON users.id = community_codes.author_id
      ORDER BY community_codes.created_at DESC
