@@ -15,6 +15,7 @@
 
   
   <link rel="stylesheet" href="./css/style.css?v=3">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileReady" async defer></script>
 </head>
 <body>
 
@@ -57,6 +58,7 @@
           <label>Password</label>
           <input type="password" id="gate-login-password" class="form-control" placeholder="••••••••" required autocomplete="current-password">
         </div>
+        <div id="turnstile-login" style="margin: 8px 0;"></div>
         <button type="submit" id="gate-login-btn" class="btn btn-primary" style="width: 100%; padding: 8px; margin-top: 8px;">
           Sign In
         </button>
@@ -72,6 +74,7 @@
           <label>Password</label>
           <input type="password" id="gate-signup-password" class="form-control" placeholder="••••••••" required autocomplete="new-password">
         </div>
+        <div id="turnstile-signup" style="margin: 8px 0;"></div>
         <button type="submit" id="gate-signup-btn" class="btn btn-primary" style="width: 100%; padding: 8px; margin-top: 8px;">
           Create Account
         </button>
