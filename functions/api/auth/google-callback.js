@@ -1,11 +1,23 @@
-import { signSession, sessionCookie } from "../../_lib/auth.js";
+import { signSession, sessionCookie, readCookie, clearOauthStateCookie } from "../../_lib/auth.js";
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  const expectedState = readCookie(request, "oauth_state");
+
+  if (!state || !expectedState || state !== expectedState) {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: "/?auth_error=invalid_state", "Set-Cookie": clearOauthStateCookie() }
+    });
+  }
 
   if (!code) {
-    return Response.redirect("/?auth_error=missing_code", 302);
+    return new Response(null, {
+      status: 302,
+      headers: { Location: "/?auth_error=missing_code", "Set-Cookie": clearOauthStateCookie() }
+    });
   }
 
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -22,7 +34,10 @@ export async function onRequestGet({ request, env }) {
   const tokenData = await tokenRes.json();
 
   if (!tokenData.access_token) {
-    return Response.redirect("/?auth_error=google_token_failed", 302);
+    return new Response(null, {
+      status: 302,
+      headers: { Location: "/?auth_error=google_token_failed", "Set-Cookie": clearOauthStateCookie() }
+    });
   }
 
   const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
@@ -59,8 +74,9 @@ export async function onRequestGet({ request, env }) {
 
   const token = await signSession({ uid: user.id, username: user.username, role: user.role }, env.SESSION_SECRET);
 
-  return new Response(null, {
-    status: 302,
-    headers: { Location: "/", "Set-Cookie": sessionCookie(token) }
-  });
+  const headers = new Headers({ Location: "/" });
+  headers.append("Set-Cookie", sessionCookie(token));
+  headers.append("Set-Cookie", clearOauthStateCookie());
+
+  return new Response(null, { status: 302, headers });
 }
