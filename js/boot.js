@@ -293,13 +293,21 @@
     }
     document.getElementById("sidebar-backdrop")?.addEventListener("click", closeSidebarDrawer);
 
-    // Edge-swipe to open, swipe-away to close - works on every view since it's
-    // bound at the document level, not per-page.
+    // Swipe-away to close only - deliberately no edge-swipe-to-open gesture.
+    // An edge-swipe-open competes for the exact same touch as iOS/Android's
+    // own "swipe from the edge to go back" gesture, and a page-level listener
+    // can never reliably win that fight (this one was even passive, so it
+    // could never call preventDefault at all). That conflict was the actual
+    // cause of the drawer opening halfway into a back-navigation, a stuck
+    // scroll view, and a colored sliver at the edge that looked like an
+    // unusable scrollbar but was really the OS's own back-gesture page-peek.
+    // Opening the drawer is the hamburger button's job - zero gesture
+    // conflict there. Closing by swiping still works since that gesture
+    // starts inside the open drawer's content, not at the screen edge, so it
+    // never overlaps with the OS's back gesture.
     (function setupSidebarSwipe() {
-      const EDGE_ZONE = 24;
-      const OPEN_THRESHOLD = 60;
       const CLOSE_THRESHOLD = 60;
-      let startX = 0, startY = 0, tracking = false, mode = null;
+      let startX = 0, startY = 0, tracking = false;
 
       document.addEventListener("touchstart", (e) => {
         if (window.innerWidth > 900) return;
@@ -308,16 +316,7 @@
         const t = e.touches[0];
         startX = t.clientX;
         startY = t.clientY;
-        if (!isOpen && startX <= EDGE_ZONE) {
-          tracking = true;
-          mode = "open";
-        } else if (isOpen) {
-          tracking = true;
-          mode = "close";
-        } else {
-          tracking = false;
-          mode = null;
-        }
+        tracking = !!isOpen;
       }, { passive: true });
 
       document.addEventListener("touchmove", (e) => {
@@ -329,11 +328,7 @@
           tracking = false;
           return;
         }
-        if (mode === "open" && dx > OPEN_THRESHOLD) {
-          document.querySelector(".sidebar")?.classList.add("open");
-          document.getElementById("sidebar-backdrop")?.classList.add("open");
-          tracking = false;
-        } else if (mode === "close" && dx < -CLOSE_THRESHOLD) {
+        if (dx < -CLOSE_THRESHOLD) {
           closeSidebarDrawer();
           tracking = false;
         }

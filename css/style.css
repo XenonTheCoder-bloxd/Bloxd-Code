@@ -38,14 +38,6 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
   overflow-x: hidden;
-  /* Tell the browser vertical panning is the only native touch gesture here.
-     This is what stops iOS/Android's edge-swipe-back from fighting our own
-     drawer gesture. Only the X axis is restricted - Y is left alone on
-     purpose, since killing vertical overscroll-behavior is what broke
-     touch/scroll gesture recognition at the top and bottom of the page on
-     iOS WebKit (Chrome-on-iPhone included, it's WebKit under the hood too). */
-  touch-action: pan-y;
-  overscroll-behavior-x: none;
 }
 
 body {
