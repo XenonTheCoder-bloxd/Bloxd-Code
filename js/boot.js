@@ -106,6 +106,103 @@
     });
   };
 
+  function setupGlobalSearch() {
+    const input = document.getElementById("global-search-input");
+    const panel = document.getElementById("global-search-results");
+    if (!input || !panel) return;
+
+    function closeResults() {
+      panel.style.display = "none";
+      panel.innerHTML = "";
+    }
+
+    function runSearch(query) {
+      const q = query.trim().toLowerCase();
+      if (!q) { closeResults(); return; }
+
+      const codeMatches = (typeof communityCodes !== "undefined" ? communityCodes : [])
+        .filter(c => (c.title || "").toLowerCase().includes(q) || (c.description || "").toLowerCase().includes(q))
+        .slice(0, 5);
+
+      const postMatches = (typeof forumPosts !== "undefined" ? forumPosts : [])
+        .filter(p => (p.title || "").toLowerCase().includes(q) || (p.content || "").toLowerCase().includes(q))
+        .slice(0, 5);
+
+      const lessonMatches = [];
+      if (typeof ACADEMY_UNITS !== "undefined") {
+        ACADEMY_UNITS.forEach(unit => {
+          unit.lessons.forEach(lesson => {
+            if ((lesson.title || "").toLowerCase().includes(q)) lessonMatches.push(lesson);
+          });
+        });
+      }
+      const lessonMatchesTop = lessonMatches.slice(0, 5);
+
+      const userMatches = (typeof usersDirectory !== "undefined" ? usersDirectory : [])
+        .filter(u => (u.username || "").toLowerCase().includes(q))
+        .slice(0, 5);
+
+      const groups = [
+        { label: "Codes", icon: "fa-solid fa-code", items: codeMatches.map(c => ({ text: c.title, onClick: () => { navigateTo("codes"); window.viewCodeEntry(c.id); } })) },
+        { label: "Discussions", icon: "fa-solid fa-comments", items: postMatches.map(p => ({
+            text: p.title,
+            onClick: () => {
+              navigateTo("forum");
+              setTimeout(() => {
+                const el = document.querySelector(`.forum-post-card[data-post-id="${CSS.escape(String(p.id))}"]`);
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el.style.outline = "2px solid #fff";
+                  setTimeout(() => { el.style.outline = ""; }, 1500);
+                }
+              }, 50);
+            }
+          })) },
+        { label: "Academy", icon: "fa-solid fa-graduation-cap", items: lessonMatchesTop.map(l => ({ text: l.title, onClick: () => window.openCoddyLesson(l.id) })) },
+        { label: "Developers", icon: "fa-solid fa-user", items: userMatches.map(u => ({ text: "@" + u.username, onClick: () => window.openDevProfile(u.username) })) }
+      ].filter(g => g.items.length > 0);
+
+      if (groups.length === 0) {
+        panel.innerHTML = `<div class="search-results-panel"><div class="search-result-item" style="cursor: default;"><span>No matches.</span></div></div>`;
+        panel.style.display = "block";
+        return;
+      }
+
+      const html = groups.map(g => `
+        <div class="search-result-group-label">${g.label}</div>
+        ${g.items.map((item, i) => `<div class="search-result-item" data-group="${escapeHtml(g.label)}" data-index="${i}"><i class="${g.icon}"></i><span>${escapeHtml(item.text)}</span></div>`).join("")}
+      `).join("");
+
+      panel.innerHTML = `<div class="search-results-panel">${html}</div>`;
+      panel.style.display = "block";
+
+      panel.querySelectorAll(".search-result-item[data-group]").forEach(el => {
+        const groupLabel = el.getAttribute("data-group");
+        const idx = Number(el.getAttribute("data-index"));
+        const group = groups.find(g => g.label === groupLabel);
+        el.onclick = () => {
+          group.items[idx].onClick();
+          input.value = "";
+          closeResults();
+        };
+      });
+    }
+
+    let debounceTimer = null;
+    input.addEventListener("input", () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => runSearch(input.value), 150);
+    });
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { input.blur(); closeResults(); }
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".search-bar")) closeResults();
+    });
+  }
+
   function setupAuthGateActions() {
     const gateLoginBtn = document.getElementById("gate-login-btn");
     const gateSignupBtn = document.getElementById("gate-signup-btn");
@@ -264,6 +361,7 @@
     }, 600);
 
     setupAuthGateActions();
+    setupGlobalSearch();
     checkAuthGate();
 
     navigateTo(pathToView(location.pathname), false);
