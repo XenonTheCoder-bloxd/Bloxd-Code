@@ -168,8 +168,8 @@
     }
     if (Object.keys(payload).length === 0) return;
 
-    apiFetch("/api/profile/update", { method: "POST", body: JSON.stringify(payload) }).catch(() => {
-      showToast("Saved locally, but couldn't sync to the server - check your connection.", "error");
+    apiFetch("/api/profile/update", { method: "POST", body: JSON.stringify(payload) }).catch((err) => {
+      showToast(err.message || "Saved locally, but couldn't sync to the server - check your connection.", "error");
     });
   }
 
