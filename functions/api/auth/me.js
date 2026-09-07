@@ -12,7 +12,9 @@ export async function onRequestGet({ request, env }) {
     `SELECT id, username, email, bio, avatar, avatar_zoom, avatar_pos_x, avatar_pos_y,
             portfolio_bg, portfolio_audio, audio_title, custom_code, portfolio_effect,
             card_x, card_y, discord, github, xp, lessons, profile_views,
-            last_username_change, debug_mode, role
+            last_username_change, debug_mode, role,
+            (password_hash IS NOT NULL) AS has_password,
+            (google_id IS NOT NULL) AS has_google
      FROM users WHERE id = ?`
   ).bind(session.uid).first();
 

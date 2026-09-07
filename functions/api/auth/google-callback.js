@@ -1,4 +1,8 @@
-import { signSession, sessionCookie, readCookie, clearOauthStateCookie } from "../../_lib/auth.js";
+import { signSession, sessionCookie, readCookie, clearOauthStateCookie, verifySession } from "../../_lib/auth.js";
+
+function clearOauthLinkCookie() {
+  return `oauth_link=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+}
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -44,6 +48,40 @@ export async function onRequestGet({ request, env }) {
     headers: { Authorization: `Bearer ${tokenData.access_token}` }
   });
   const profile = await profileRes.json();
+
+  // Link mode: the user was already logged in and asked to connect Google to
+  // their existing account, rather than sign in as a (possibly different)
+  // Google-linked account. The link token is HMAC-signed by us at request
+  // time, so a forged cookie can't be used to link Google to someone else's
+  // account.
+  const linkToken = readCookie(request, "oauth_link");
+  if (linkToken) {
+    const linkPayload = await verifySession(linkToken, env.SESSION_SECRET);
+    const clearHeaders = new Headers({ Location: "/" });
+    clearHeaders.append("Set-Cookie", clearOauthStateCookie());
+    clearHeaders.append("Set-Cookie", clearOauthLinkCookie());
+
+    if (!linkPayload || !linkPayload.linkUid) {
+      clearHeaders.set("Location", "/?auth_error=invalid_state");
+      return new Response(null, { status: 302, headers: clearHeaders });
+    }
+
+    const conflicting = await env.DB.prepare(
+      "SELECT id FROM users WHERE google_id = ? AND id != ?"
+    ).bind(profile.sub, linkPayload.linkUid).first();
+
+    if (conflicting) {
+      clearHeaders.set("Location", "/?google_error=already_linked_elsewhere");
+      return new Response(null, { status: 302, headers: clearHeaders });
+    }
+
+    await env.DB.prepare(
+      "UPDATE users SET google_id = ?, email = COALESCE(email, ?) WHERE id = ?"
+    ).bind(profile.sub, profile.email || null, linkPayload.linkUid).run();
+
+    clearHeaders.set("Location", "/?google=linked");
+    return new Response(null, { status: 302, headers: clearHeaders });
+  }
 
   let user = await env.DB.prepare("SELECT * FROM users WHERE google_id = ?").bind(profile.sub).first();
 

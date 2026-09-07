@@ -49,7 +49,9 @@
       socials: { discord: row.discord || "", github: row.github || "" },
       stats: { xp: row.xp || 0, lessons: row.lessons || 0 },
       profileViews: row.profile_views || 0,
-      role: row.role || "user"
+      role: row.role || "user",
+      hasPassword: !!row.has_password,
+      hasGoogle: !!row.has_google
     };
   }
 

@@ -320,6 +320,22 @@
       document.getElementById("account-username-input").value = userProfile.username || "";
       document.getElementById("account-email-input").value = userProfile.email || "";
       document.getElementById("account-subdomain-display").textContent = `${userProfile.username}.bloxdcode.com`;
+
+      const hasPassword = !!userProfile.hasPassword;
+      document.getElementById("account-password-label").textContent = hasPassword ? "Change Password" : "Set a Password";
+      document.getElementById("account-password-btn-label").textContent = hasPassword ? "Update Password" : "Set Password";
+      document.getElementById("account-current-password-group").style.display = hasPassword ? "block" : "none";
+      document.getElementById("account-current-password").value = "";
+      document.getElementById("account-new-password").value = "";
+      document.getElementById("account-confirm-password").value = "";
+
+      const hasGoogle = !!userProfile.hasGoogle;
+      document.getElementById("account-google-status").textContent = hasGoogle
+        ? "Connected. You can sign in with Google or your password."
+        : "Not connected. Link Google for a faster sign-in.";
+      document.getElementById("account-google-connect-btn").style.display = hasGoogle ? "none" : "block";
+      document.getElementById("account-google-disconnect-btn").style.display = hasGoogle ? "block" : "none";
+
       modal.classList.add("active");
     };
     if (closeBtn) closeBtn.onclick = () => modal.classList.remove("active");
@@ -348,6 +364,97 @@
       };
     }
 
+    const pwSaveBtn = document.getElementById("account-password-save");
+    if (pwSaveBtn) {
+      pwSaveBtn.onclick = async () => {
+        const currentPassword = document.getElementById("account-current-password")?.value;
+        const newPassword = document.getElementById("account-new-password")?.value;
+        const confirmPassword = document.getElementById("account-confirm-password")?.value;
+
+        if (!newPassword || newPassword.length < 8) {
+          showToast("New password must be at least 8 characters.", "error");
+          return;
+        }
+        if (newPassword !== confirmPassword) {
+          showToast("New passwords don't match.", "error");
+          return;
+        }
+
+        pwSaveBtn.disabled = true;
+        try {
+          await apiFetch("/api/account/change-password", {
+            method: "POST",
+            body: JSON.stringify({ currentPassword, newPassword })
+          });
+          document.getElementById("account-current-password").value = "";
+          document.getElementById("account-new-password").value = "";
+          document.getElementById("account-confirm-password").value = "";
+          showToast("Password updated!", "success");
+          userProfile.hasPassword = true;
+        } catch (err) {
+          showToast(err.message || "Couldn't update your password.", "error");
+        } finally {
+          pwSaveBtn.disabled = false;
+        }
+      };
+    }
+
+    const googleConnectBtn = document.getElementById("account-google-connect-btn");
+    if (googleConnectBtn) {
+      googleConnectBtn.onclick = () => {
+        location.href = "/api/auth/google?mode=link";
+      };
+    }
+
+    const googleDisconnectBtn = document.getElementById("account-google-disconnect-btn");
+    if (googleDisconnectBtn) {
+      googleDisconnectBtn.onclick = () => {
+        showConfirmModal({
+          title: "Disconnect Google?",
+          message: "You'll only be able to sign in with your username and password after this.",
+          confirmLabel: "Disconnect",
+          onConfirm: async () => {
+            try {
+              await apiFetch("/api/account/unlink-google", { method: "POST" });
+              userProfile.hasGoogle = false;
+              document.getElementById("account-google-status").textContent = "Not connected. Link Google for a faster sign-in.";
+              document.getElementById("account-google-connect-btn").style.display = "block";
+              document.getElementById("account-google-disconnect-btn").style.display = "none";
+              showToast("Google disconnected.", "success");
+            } catch (err) {
+              showToast(err.message || "Couldn't disconnect Google.", "error");
+            }
+          }
+        });
+      };
+    }
+
+    const exportBtn = document.getElementById("account-export-btn");
+    if (exportBtn) {
+      exportBtn.onclick = async () => {
+        exportBtn.disabled = true;
+        exportBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Preparing...`;
+        try {
+          const res = await fetch("/api/account/export", { credentials: "include" });
+          if (!res.ok) throw new Error("Couldn't prepare your data export.");
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `bloxdcode-data-${userProfile.username}.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          showToast(err.message || "Couldn't download your data.", "error");
+        } finally {
+          exportBtn.disabled = false;
+          exportBtn.innerHTML = `<i class="fa-solid fa-file-export"></i> Download My Data`;
+        }
+      };
+    }
+
     const deleteBtn = document.getElementById("account-delete-btn");
     if (deleteBtn) {
       deleteBtn.onclick = () => {
@@ -367,6 +474,16 @@
           }
         });
       };
+    }
+
+    const googleParam = new URLSearchParams(location.search).get("google");
+    const googleErrorParam = new URLSearchParams(location.search).get("google_error");
+    if (googleParam === "linked") {
+      showToast("Google account connected!", "success");
+      history.replaceState(null, "", location.pathname);
+    } else if (googleErrorParam === "already_linked_elsewhere") {
+      showToast("That Google account is already linked to a different user.", "error");
+      history.replaceState(null, "", location.pathname);
     }
   }
 
