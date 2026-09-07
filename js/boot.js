@@ -270,6 +270,10 @@
           showToast("Password must be at least 8 characters.", "error");
           return;
         }
+        if (!document.getElementById("gate-signup-agree")?.checked) {
+          showToast("Please agree to the Privacy Policy to continue.", "error");
+          return;
+        }
         if (!turnstileSignupToken) {
           showToast("Please complete the verification.", "error");
           return;
