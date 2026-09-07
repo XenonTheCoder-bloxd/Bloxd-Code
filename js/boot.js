@@ -116,30 +116,38 @@
       panel.innerHTML = "";
     }
 
-    function runSearch(query) {
-      const q = query.trim().toLowerCase();
+    let searchToken = 0;
+
+    async function runSearch(query) {
+      const q = query.trim();
       if (!q) { closeResults(); return; }
 
-      const codeMatches = (typeof communityCodes !== "undefined" ? communityCodes : [])
-        .filter(c => (c.title || "").toLowerCase().includes(q) || (c.description || "").toLowerCase().includes(q))
-        .slice(0, 5);
+      const myToken = ++searchToken;
 
-      const postMatches = (typeof forumPosts !== "undefined" ? forumPosts : [])
-        .filter(p => (p.title || "").toLowerCase().includes(q) || (p.content || "").toLowerCase().includes(q))
-        .slice(0, 5);
+      let codeMatches = [];
+      let postMatches = [];
+      try {
+        const data = await apiFetch(`/api/search?q=${encodeURIComponent(q)}`);
+        codeMatches = data.codes || [];
+        postMatches = data.posts || [];
+      } catch (e) {
+        // Search failing shouldn't break the page - just show no server results.
+      }
+      if (myToken !== searchToken) return; // a newer search has since started
 
+      const qLower = q.toLowerCase();
       const lessonMatches = [];
       if (typeof ACADEMY_UNITS !== "undefined") {
         ACADEMY_UNITS.forEach(unit => {
           unit.lessons.forEach(lesson => {
-            if ((lesson.title || "").toLowerCase().includes(q)) lessonMatches.push(lesson);
+            if ((lesson.title || "").toLowerCase().includes(qLower)) lessonMatches.push(lesson);
           });
         });
       }
       const lessonMatchesTop = lessonMatches.slice(0, 5);
 
       const userMatches = (typeof usersDirectory !== "undefined" ? usersDirectory : [])
-        .filter(u => (u.username || "").toLowerCase().includes(q))
+        .filter(u => (u.username || "").toLowerCase().includes(qLower))
         .slice(0, 5);
 
       const groups = [
@@ -191,7 +199,7 @@
     let debounceTimer = null;
     input.addEventListener("input", () => {
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => runSearch(input.value), 150);
+      debounceTimer = setTimeout(() => runSearch(input.value), 250);
     });
 
     input.addEventListener("keydown", (e) => {
