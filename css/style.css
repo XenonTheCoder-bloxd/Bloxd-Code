@@ -38,6 +38,12 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
   overflow-x: hidden;
+  /* Stops iOS/Android's elastic bounce past the page's horizontal edge (and
+     Chrome's overscroll-triggered swipe-navigation). This is unrelated to
+     touch-action - it only governs what happens AT the scroll boundary, not
+     which gesture directions are recognized, so it doesn't block horizontal
+     scrolling inside things like the category filter strip. */
+  overscroll-behavior-x: none;
 }
 
 body {
