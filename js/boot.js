@@ -211,6 +211,58 @@
     });
   }
 
+  function setupResetPasswordFlow() {
+    const token = new URLSearchParams(location.search).get("reset");
+    if (!token) return;
+
+    const screen = document.getElementById("reset-password-screen");
+    const authGate = document.getElementById("auth-gate-screen");
+    if (!screen) return;
+
+    if (authGate) authGate.style.display = "none";
+    screen.style.display = "flex";
+
+    const submitBtn = document.getElementById("reset-password-submit");
+    if (submitBtn) {
+      submitBtn.onclick = async () => {
+        const newPassword = document.getElementById("reset-new-password")?.value;
+        const confirmPassword = document.getElementById("reset-confirm-password")?.value;
+
+        if (!newPassword || newPassword.length < 8) {
+          showToast("Password must be at least 8 characters.", "error");
+          return;
+        }
+        if (newPassword !== confirmPassword) {
+          showToast("Passwords don't match.", "error");
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Setting password...";
+        try {
+          const data = await apiFetch("/api/auth/reset-password", {
+            method: "POST",
+            body: JSON.stringify({ token, newPassword })
+          });
+          history.replaceState(null, "", location.pathname);
+          screen.style.display = "none";
+          if (data.loggedIn) {
+            await checkAuthGate();
+            showToast("Password updated! You're signed in.", "success");
+          } else {
+            if (authGate) authGate.style.display = "flex";
+            showToast("Password updated. Please sign in.", "success");
+          }
+        } catch (err) {
+          showToast(err.message || "Couldn't reset your password. The link may have expired.", "error");
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Set New Password";
+        }
+      };
+    }
+  }
+
   function setupAuthGateActions() {
     const gateLoginBtn = document.getElementById("gate-login-btn");
     const gateSignupBtn = document.getElementById("gate-signup-btn");
@@ -219,6 +271,55 @@
     if (gateGoogleBtn) {
       gateGoogleBtn.onclick = () => {
         window.location.href = "/api/auth/google";
+      };
+    }
+
+    const forgotLink = document.getElementById("gate-forgot-link");
+    const forgotBack = document.getElementById("gate-forgot-back");
+    const forgotPanel = document.getElementById("gate-forgot-panel");
+    const loginForm = document.getElementById("gate-form-login");
+    const signupForm = document.getElementById("gate-form-signup");
+    const authTabs = document.getElementById("gate-auth-tabs");
+
+    if (forgotLink && forgotPanel && loginForm) {
+      forgotLink.onclick = (e) => {
+        e.preventDefault();
+        loginForm.style.display = "none";
+        if (authTabs) authTabs.style.display = "none";
+        forgotPanel.style.display = "block";
+      };
+    }
+    if (forgotBack && forgotPanel && loginForm) {
+      forgotBack.onclick = (e) => {
+        e.preventDefault();
+        forgotPanel.style.display = "none";
+        loginForm.style.display = "block";
+        if (authTabs) authTabs.style.display = "flex";
+      };
+    }
+
+    const forgotSubmit = document.getElementById("gate-forgot-submit");
+    if (forgotSubmit) {
+      forgotSubmit.onclick = async () => {
+        const email = document.getElementById("gate-forgot-email")?.value?.trim();
+        if (!email) {
+          showToast("Please enter your email.", "error");
+          return;
+        }
+        forgotSubmit.disabled = true;
+        forgotSubmit.textContent = "Sending...";
+        try {
+          const data = await apiFetch("/api/auth/forgot-password", {
+            method: "POST",
+            body: JSON.stringify({ email })
+          });
+          showToast(data.message || "If that email is registered, check your inbox.", "success");
+        } catch (err) {
+          showToast(err.message || "Something went wrong. Please try again.", "error");
+        } finally {
+          forgotSubmit.disabled = false;
+          forgotSubmit.textContent = "Send Reset Link";
+        }
       };
     }
 
@@ -375,6 +476,7 @@
 
     setupAuthGateActions();
     setupGlobalSearch();
+    setupResetPasswordFlow();
     checkAuthGate();
 
     navigateTo(pathToView(location.pathname), false);

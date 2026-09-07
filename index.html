@@ -43,7 +43,7 @@
       </div>
 
       
-      <div style="display: flex; margin-bottom: 16px; border-bottom: 1px solid var(--border-color);">
+      <div id="gate-auth-tabs" style="display: flex; margin-bottom: 16px; border-bottom: 1px solid var(--border-color);">
         <div id="gate-tab-login" class="auth-tab active" style="flex: 1; padding: 6px; cursor: pointer; text-align: center; font-weight: 600; font-size: 13px; color: #fff;">Sign In</div>
         <div id="gate-tab-signup" class="auth-tab" style="flex: 1; padding: 6px; cursor: pointer; text-align: center; font-weight: 600; font-size: 13px; color: var(--text-muted);">Sign Up</div>
       </div>
@@ -62,7 +62,23 @@
         <button type="submit" id="gate-login-btn" class="btn btn-primary" style="width: 100%; padding: 8px; margin-top: 8px;">
           Sign In
         </button>
+        <div style="text-align: center; margin-top: 10px;">
+          <a href="#" id="gate-forgot-link" style="font-size: 12px; color: var(--text-dim);">Forgot password?</a>
+        </div>
       </form>
+
+      <div id="gate-forgot-panel" style="display: none; text-align: left;">
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">Enter the email on your account and we'll send you a reset link.</p>
+        <div class="form-group">
+          <input type="email" id="gate-forgot-email" class="form-control" placeholder="you@example.com">
+        </div>
+        <button type="button" id="gate-forgot-submit" class="btn btn-primary" style="width: 100%; padding: 8px; margin-top: 4px;">
+          Send Reset Link
+        </button>
+        <div style="text-align: center; margin-top: 10px;">
+          <a href="#" id="gate-forgot-back" style="font-size: 12px; color: var(--text-dim);">Back to sign in</a>
+        </div>
+      </div>
 
       
       <form id="gate-form-signup" style="display: none;">
@@ -91,6 +107,27 @@
       <div style="margin-top: 14px; font-size: 11px; color: var(--text-dim);">
         <a href="./privacy.html" style="color: var(--text-dim);">Privacy Policy</a>
       </div>
+    </div>
+  </div>
+
+  
+  <div id="reset-password-screen" style="display: none;">
+    <div class="auth-gate-card">
+      <img src="./favicon.png" alt="Bloxd Code" class="auth-gate-logo">
+      <h2 class="auth-gate-title">Set a new password</h2>
+      <p class="auth-gate-subtitle">Choose a new password for your account</p>
+
+      <div class="form-group" style="text-align: left;">
+        <label>New Password</label>
+        <input type="password" id="reset-new-password" class="form-control" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <div class="form-group" style="text-align: left;">
+        <label>Confirm Password</label>
+        <input type="password" id="reset-confirm-password" class="form-control" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <button type="button" id="reset-password-submit" class="btn btn-primary" style="width: 100%; padding: 8px; margin-top: 8px;">
+        Set New Password
+      </button>
     </div>
   </div>
 
