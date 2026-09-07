@@ -543,11 +543,6 @@
       window.__debugPanelBuilt = false;
     }
 
-    // Off by default for everyone, including you - only shows once the
-    // user checks "Enable debug capture tool" in their own profile settings
-    // (Settings > tucked below Reset card position), and that preference is
-    // saved to their Firestore profile, so it follows them across reloads
-    // and devices instead of resetting per-browser.
     window.__refreshDebugButton = function () {
       if (userProfile?.debugMode) {
         if (!window.__debugPanelBuilt) buildPanel();
@@ -563,4 +558,3 @@
       }
     }, 1000);
   })();
-

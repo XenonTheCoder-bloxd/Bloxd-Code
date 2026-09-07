@@ -280,7 +280,3 @@
     loadForumPostsFromServer();
     forumUnsub = setInterval(loadForumPostsFromServer, 10000);
   }
-
-  
-
- 
