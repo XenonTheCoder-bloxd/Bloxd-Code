@@ -252,7 +252,7 @@
     renderDashboardCreators();
   };
 
-  window.deleteDevProfile = async function(username) {
+  window.deleteDevProfile = function(username) {
     if (!isAdminUser) return;
     const key = String(username || "").toLowerCase().replace(/[^a-z0-9_\-]/g, "");
     if (!key) return;
@@ -260,27 +260,34 @@
       showToast("You can't delete your own profile.", "error");
       return;
     }
-    if (!confirm(`Delete ${key}'s profile and all their posts and codes?`)) return;
 
-    try {
-      await apiFetch("/api/admin/delete-user", { method: "POST", body: JSON.stringify({ username: key }) });
-    } catch (e) {
-      showToast(e.message || `Couldn't delete ${key} - the account may still exist.`, "error");
-      return;
-    }
+    showConfirmModal({
+      title: `Delete ${key}?`,
+      message: `This permanently deletes ${key}'s profile, forum posts, and uploaded code. This can't be undone.`,
+      confirmLabel: "Delete Account",
+      typeToConfirm: key,
+      onConfirm: async () => {
+        try {
+          await apiFetch("/api/admin/delete-user", { method: "POST", body: JSON.stringify({ username: key }) });
+        } catch (e) {
+          showToast(e.message || `Couldn't delete ${key} - the account may still exist.`, "error");
+          return;
+        }
 
-    communityCodes = communityCodes.filter(c => String(c.author || "").toLowerCase() !== key);
-    localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
+        communityCodes = communityCodes.filter(c => String(c.author || "").toLowerCase() !== key);
+        localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
 
-    forumPosts = forumPosts.filter(p => String(p.author || "").toLowerCase() !== key);
-    localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
+        forumPosts = forumPosts.filter(p => String(p.author || "").toLowerCase() !== key);
+        localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
 
-    usersDirectory = usersDirectory.filter(u => String(u.username || "").toLowerCase() !== key);
+        usersDirectory = usersDirectory.filter(u => String(u.username || "").toLowerCase() !== key);
 
-    renderDashboard();
-    renderForumFeed();
-    renderCodesGrid(activeCodesCategory);
-    showToast(`Deleted ${key}.`, "success");
+        renderDashboard();
+        renderForumFeed();
+        renderCodesGrid(activeCodesCategory);
+        showToast(`Deleted ${key}.`, "success");
+      }
+    });
   };
 
   function renderDashboardAcademyProgress() {

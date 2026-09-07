@@ -73,6 +73,52 @@
   }
   window.showToast = showToast;
 
+  // Reusable dark-themed confirm dialog, replacing the browser's native
+  // confirm() (which pops up in the OS's own style, jarring against the
+  // site's theme). Pass typeToConfirm to require typing an exact string
+  // (e.g. a username) before the confirm button enables - used for
+  // higher-severity actions like account deletion.
+  function showConfirmModal({ title = "Are you sure?", message = "", confirmLabel = "Confirm", typeToConfirm = null, onConfirm }) {
+    const modal = document.getElementById("confirm-modal");
+    if (!modal) { if (onConfirm) onConfirm(); return; }
+
+    document.getElementById("confirm-modal-title").textContent = title;
+    document.getElementById("confirm-modal-message").textContent = message;
+
+    const confirmBtn = document.getElementById("confirm-modal-confirm");
+    confirmBtn.textContent = confirmLabel;
+
+    const typeWrap = document.getElementById("confirm-modal-type-wrap");
+    const typeInput = document.getElementById("confirm-modal-type-input");
+
+    const close = () => modal.classList.remove("active");
+
+    if (typeToConfirm) {
+      typeWrap.style.display = "block";
+      typeInput.value = "";
+      typeInput.placeholder = `Type "${typeToConfirm}" to confirm`;
+      confirmBtn.disabled = true;
+      typeInput.oninput = () => {
+        confirmBtn.disabled = typeInput.value !== typeToConfirm;
+      };
+    } else {
+      typeWrap.style.display = "none";
+      confirmBtn.disabled = false;
+      typeInput.oninput = null;
+    }
+
+    document.getElementById("confirm-modal-cancel").onclick = close;
+    document.getElementById("confirm-modal-cancel-x").onclick = close;
+    confirmBtn.onclick = () => {
+      if (typeToConfirm && typeInput.value !== typeToConfirm) return;
+      close();
+      if (onConfirm) onConfirm();
+    };
+
+    modal.classList.add("active");
+  }
+  window.showConfirmModal = showConfirmModal;
+
   // Claude Security Patch: added quote-escaping - previously " and ' passed through untouched,
   // meaning every existing escapeHtml() call site inside an HTML attribute was still exploitable.
   function escapeHtml(t) {
@@ -259,6 +305,67 @@
           submitBtn.disabled = false;
           submitBtn.textContent = "Set New Password";
         }
+      };
+    }
+  }
+
+  function setupAccountSettingsModal() {
+    const btn = document.getElementById("account-settings-btn");
+    const modal = document.getElementById("account-settings-modal");
+    const closeBtn = document.getElementById("account-settings-close");
+    if (!btn || !modal) return;
+
+    btn.onclick = () => {
+      if (!userProfile) return;
+      document.getElementById("account-username-input").value = userProfile.username || "";
+      document.getElementById("account-email-input").value = userProfile.email || "";
+      document.getElementById("account-subdomain-display").textContent = `${userProfile.username}.bloxdcode.com`;
+      modal.classList.add("active");
+    };
+    if (closeBtn) closeBtn.onclick = () => modal.classList.remove("active");
+
+    const saveBtn = document.getElementById("account-settings-save");
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const newUsername = document.getElementById("account-username-input")?.value?.trim();
+        const email = document.getElementById("account-email-input")?.value?.trim();
+
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Saving...`;
+        try {
+          if (newUsername && newUsername.toLowerCase() !== userProfile.username.toLowerCase()) {
+            await updateUsernameWithCooldown(newUsername);
+            document.getElementById("account-subdomain-display").textContent = `${userProfile.username}.bloxdcode.com`;
+          }
+          saveUserProfileData({ email });
+          showToast("Account settings saved!", "success");
+        } catch (err) {
+          showToast(err.message || "Couldn't save changes.", "error");
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = `<i class="fa-solid fa-check"></i> Save Changes`;
+        }
+      };
+    }
+
+    const deleteBtn = document.getElementById("account-delete-btn");
+    if (deleteBtn) {
+      deleteBtn.onclick = () => {
+        showConfirmModal({
+          title: "Delete your account?",
+          message: "This permanently deletes your profile, forum posts, and uploaded code. This can't be undone.",
+          confirmLabel: "Delete My Account",
+          typeToConfirm: userProfile?.username || "",
+          onConfirm: async () => {
+            try {
+              await apiFetch("/api/account/delete-self", { method: "POST" });
+            } catch (err) {
+              showToast(err.message || "Couldn't delete your account.", "error");
+              return;
+            }
+            location.href = "/";
+          }
+        });
       };
     }
   }
@@ -477,6 +584,7 @@
     setupAuthGateActions();
     setupGlobalSearch();
     setupResetPasswordFlow();
+    setupAccountSettingsModal();
     checkAuthGate();
 
     navigateTo(pathToView(location.pathname), false);

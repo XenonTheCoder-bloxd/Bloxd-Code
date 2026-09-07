@@ -67,16 +67,24 @@
   window.deleteCodeEntry = function(id) {
     const entry = communityCodes.find((c) => c.id === id);
     if (!entry) return;
-    if (!confirm("Delete this code? This can't be undone.")) return;
 
-    communityCodes = communityCodes.filter((c) => c.id !== id);
-    localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
-    renderCodesGrid(activeCodesCategory);
-    renderDashboard();
-
-    apiFetch("/api/codes/delete", { method: "POST", body: JSON.stringify({ codeId: id }) }).catch((err) => {
-      console.warn("Failed to delete code from server:", err);
-      showToast("Deleted locally, but couldn't remove it from the server.", "error");
+    showConfirmModal({
+      title: "Delete this code?",
+      message: "This can't be undone.",
+      confirmLabel: "Delete",
+      onConfirm: async () => {
+        try {
+          await apiFetch("/api/codes/delete", { method: "POST", body: JSON.stringify({ codeId: id }) });
+        } catch (err) {
+          showToast(err.message || "Couldn't delete this code.", "error");
+          return;
+        }
+        communityCodes = communityCodes.filter((c) => c.id !== id);
+        localStorage.setItem("bloxd_community_codes", JSON.stringify(communityCodes));
+        renderCodesGrid(activeCodesCategory);
+        renderDashboard();
+        showToast("Code deleted.", "success");
+      }
     });
   };
 

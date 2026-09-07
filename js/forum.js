@@ -131,16 +131,24 @@
   function deleteForumPost(postId) {
     const post = forumPosts.find((p) => p.id === postId);
     if (!post) return;
-    if (!confirm("Delete this discussion? This can't be undone.")) return;
 
-    forumPosts = forumPosts.filter((p) => p.id !== postId);
-    localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
-    renderForumFeed();
-    renderDashboard();
-
-    apiFetch("/api/forum/delete", { method: "POST", body: JSON.stringify({ postId }) }).catch((err) => {
-      console.warn("Failed to delete post from server:", err);
-      showToast("Deleted locally, but couldn't remove it from the server.", "error");
+    showConfirmModal({
+      title: "Delete this discussion?",
+      message: "This can't be undone.",
+      confirmLabel: "Delete",
+      onConfirm: async () => {
+        try {
+          await apiFetch("/api/forum/delete", { method: "POST", body: JSON.stringify({ postId }) });
+        } catch (err) {
+          showToast(err.message || "Couldn't delete this discussion.", "error");
+          return;
+        }
+        forumPosts = forumPosts.filter((p) => p.id !== postId);
+        localStorage.setItem("bloxd_real_forum_posts", JSON.stringify(forumPosts));
+        renderForumFeed();
+        renderDashboard();
+        showToast("Discussion deleted.", "success");
+      }
     });
   }
 

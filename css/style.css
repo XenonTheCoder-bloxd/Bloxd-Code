@@ -585,6 +585,17 @@ input, textarea, select, pre, code, [contenteditable="true"] {
   border-color: var(--border-light);
 }
 
+.btn-danger {
+  background: transparent;
+  color: #ff4444;
+  border-color: #ff4444;
+}
+
+.btn-danger:hover {
+  background: #ff4444;
+  color: #0f0f0f;
+}
+
 .content-area {
   flex: 1;
   padding: clamp(12px, 3vw, 24px);
