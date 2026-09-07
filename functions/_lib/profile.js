@@ -11,6 +11,22 @@ export async function buildProfileUpdate(env, ownerId, body) {
     return { error: "Bio must be 500 characters or fewer." };
   }
 
+  let email;
+  if (body.email !== undefined) {
+    email = (body.email || "").trim().toLowerCase();
+    if (email) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return { error: "That doesn't look like a valid email address." };
+      }
+      const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ? AND id != ?").bind(email, ownerId).first();
+      if (existing) {
+        return { error: "That email is already associated with another account." };
+      }
+    } else {
+      email = null;
+    }
+  }
+
   const mediaFields = ["avatar", "portfolioBg", "portfolioAudio"].filter(f => body[f] !== undefined);
   if (mediaFields.length > 0) {
     const current = await env.DB.prepare(
@@ -35,6 +51,7 @@ export async function buildProfileUpdate(env, ownerId, body) {
 
   const fields = {
     bio: body.bio,
+    email: body.email === undefined ? undefined : email,
     avatar: body.avatar,
     avatar_zoom: body.avatarZoom === undefined ? undefined : clampNum(body.avatarZoom, 0.5, 3, 1),
     avatar_pos_x: body.avatarPosX === undefined ? undefined : clampNum(body.avatarPosX, 0, 100, 50),

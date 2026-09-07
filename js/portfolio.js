@@ -134,6 +134,9 @@
     const bgInput = document.getElementById("studio-bg-input");
     if (bgInput && document.activeElement !== bgInput) bgInput.value = normalizeBg(p.portfolioBg);
 
+    const eInput = document.getElementById("studio-email-input");
+    if (eInput && document.activeElement !== eInput) eInput.value = p.email || "";
+
     const dInput = document.getElementById("studio-discord-input");
     if (dInput) dInput.value = p.socials?.discord || "";
 
@@ -540,12 +543,14 @@
           const avatar = document.getElementById("studio-avatar-input")?.value?.trim();
           const discord = document.getElementById("studio-discord-input")?.value;
           const github = document.getElementById("studio-github-input")?.value;
+          const email = document.getElementById("studio-email-input")?.value?.trim();
           if (newUsername && newUsername.toLowerCase() !== userProfile.username.toLowerCase()) {
             await updateUsernameWithCooldown(newUsername);
           }
 
           saveUserProfileData({
             avatar: avatar || userProfile.avatar,
+            email,
             socials: { discord, github }
           });
 

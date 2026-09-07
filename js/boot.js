@@ -259,6 +259,7 @@
         e.preventDefault();
         const username = document.getElementById("gate-signup-username")?.value?.trim();
         const pass = document.getElementById("gate-signup-password")?.value;
+        const email = document.getElementById("gate-signup-email")?.value?.trim();
 
         const val = validateUsername(username);
         if (!val.valid) {
@@ -282,7 +283,7 @@
         try {
           await apiFetch("/api/auth/signup", {
             method: "POST",
-            body: JSON.stringify({ username: val.username, password: pass, turnstileToken: turnstileSignupToken })
+            body: JSON.stringify({ username: val.username, password: pass, email, turnstileToken: turnstileSignupToken })
           });
           await checkAuthGate();
           document.getElementById("auth-gate-screen")?.classList.add("hidden");

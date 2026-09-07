@@ -31,6 +31,7 @@
     return {
       uid: row.id,
       username: row.username,
+      email: row.email || "",
       bio: row.bio || "Bloxd.io Developer",
       avatar: row.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${row.username}`,
       avatarZoom: row.avatar_zoom || 1,
@@ -149,6 +150,7 @@
     const payload = {};
     if (data.avatar !== undefined) payload.avatar = data.avatar;
     if (data.bio !== undefined) payload.bio = data.bio;
+    if (data.email !== undefined) payload.email = data.email;
     if (data.portfolioBg !== undefined) payload.portfolioBg = data.portfolioBg;
     if (data.portfolioAudio !== undefined) payload.portfolioAudio = data.portfolioAudio;
     if (data.audioTitle !== undefined) payload.audioTitle = data.audioTitle;

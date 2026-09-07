@@ -19,6 +19,19 @@ export async function onRequestPost({ request, env }) {
     return Response.json({ error: "Password must be at least 8 characters." }, { status: 400 });
   }
 
+  let email = (body.email || "").trim().toLowerCase();
+  if (email) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return Response.json({ error: "That doesn't look like a valid email address." }, { status: 400 });
+    }
+    const existingEmail = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+    if (existingEmail) {
+      return Response.json({ error: "That email is already associated with another account." }, { status: 409 });
+    }
+  } else {
+    email = null;
+  }
+
   const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
   if (existing) {
     return Response.json({ error: "That username is already taken." }, { status: 409 });
@@ -29,9 +42,9 @@ export async function onRequestPost({ request, env }) {
   const avatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${username}`;
 
   const result = await env.DB.prepare(
-    `INSERT INTO users (username, password_hash, avatar, role, created_at)
-     VALUES (?, ?, ?, 'user', ?)`
-  ).bind(username, passwordHash, avatar, now).run();
+    `INSERT INTO users (username, email, password_hash, avatar, role, created_at)
+     VALUES (?, ?, ?, ?, 'user', ?)`
+  ).bind(username, email, passwordHash, avatar, now).run();
 
   const userId = result.meta.last_row_id;
 
