@@ -1,5 +1,16 @@
 'use strict';
 
+  let sandboxHeartbeatToken = 0;
+  let sandboxLastHeartbeat = 0;
+  let sandboxWatchdogTimer = null;
+
+  window.addEventListener("message", (event) => {
+    if (event.data && typeof event.data.bloxdSandboxHeartbeat === "number" &&
+        event.data.bloxdSandboxHeartbeat === sandboxHeartbeatToken) {
+      sandboxLastHeartbeat = Date.now();
+    }
+  });
+
   function renderBgPresets() {
     const container = document.getElementById("bg-presets-container");
     if (!container) return;
@@ -207,7 +218,14 @@
 
   function renderCustomSandbox(code) {
     const frame = document.getElementById("stage-sandbox-frame");
+    const timeoutEl = document.getElementById("stage-sandbox-timeout");
     if (!frame) return;
+
+    if (sandboxWatchdogTimer) {
+      clearInterval(sandboxWatchdogTimer);
+      sandboxWatchdogTimer = null;
+    }
+    if (timeoutEl) timeoutEl.style.display = "none";
 
     const hasContent = String(code || "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/<!--[\s\S]*?-->/g, "").trim();
     if (!hasContent) {
@@ -215,17 +233,41 @@
       return;
     }
 
+    sandboxHeartbeatToken++;
+    const myToken = sandboxHeartbeatToken;
+    sandboxLastHeartbeat = Date.now();
+
     // The iframe carries sandbox="allow-scripts" (no allow-same-origin) in index.html, so
     // this document is always opaque-origin: it cannot reach window.parent, cookies,
     // localStorage, or IndexedDB on the real site no matter what the code does. No
     // string-blocklist needed - the browser enforces this, not a regex.
+    //
+    // The heartbeat script below pings the parent every second. A hard infinite
+    // loop in the user's code blocks this iframe's JS thread entirely, so the
+    // heartbeat simply stops - that's the signal the watchdog below waits for.
     frame.srcdoc = `
       <!DOCTYPE html>
       <html>
         <head><style>body{margin:0;overflow:hidden;background:transparent;color:#fff;font-family:sans-serif;}</style></head>
-        <body>${code}</body>
+        <body>${code}
+          <script>
+            setInterval(function() {
+              try { parent.postMessage({ bloxdSandboxHeartbeat: ${myToken} }, "*"); } catch (e) {}
+            }, 1000);
+          <\/script>
+        </body>
       </html>
     `;
+
+    sandboxWatchdogTimer = setInterval(() => {
+      if (myToken !== sandboxHeartbeatToken) return; // a newer sandbox has since loaded
+      if (Date.now() - sandboxLastHeartbeat > 6000) {
+        clearInterval(sandboxWatchdogTimer);
+        sandboxWatchdogTimer = null;
+        frame.srcdoc = "<!DOCTYPE html><html><body></body></html>";
+        if (timeoutEl) timeoutEl.style.display = "flex";
+      }
+    }, 1000);
   }
 
   let cardSuppressClick = false;

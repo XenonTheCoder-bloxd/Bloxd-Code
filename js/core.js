@@ -164,10 +164,6 @@
       if (data.socials.discord !== undefined) payload.discord = data.socials.discord;
       if (data.socials.github !== undefined) payload.github = data.socials.github;
     }
-    if (data.stats !== undefined) {
-      if (data.stats.xp !== undefined) payload.xp = data.stats.xp;
-      if (data.stats.lessons !== undefined) payload.lessons = data.stats.lessons;
-    }
     if (Object.keys(payload).length === 0) return;
 
     apiFetch("/api/profile/update", { method: "POST", body: JSON.stringify(payload) }).catch(() => {

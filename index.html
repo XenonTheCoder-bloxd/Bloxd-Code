@@ -15,6 +15,7 @@
 
   
   <link rel="stylesheet" href="./css/style.css?v=3">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileReady" async defer></script>
 </head>
 <body>
 
@@ -57,6 +58,7 @@
           <label>Password</label>
           <input type="password" id="gate-login-password" class="form-control" placeholder="••••••••" required autocomplete="current-password">
         </div>
+        <div id="turnstile-login" style="margin: 8px 0;"></div>
         <button type="submit" id="gate-login-btn" class="btn btn-primary" style="width: 100%; padding: 8px; margin-top: 8px;">
           Sign In
         </button>
@@ -72,6 +74,7 @@
           <label>Password</label>
           <input type="password" id="gate-signup-password" class="form-control" placeholder="••••••••" required autocomplete="new-password">
         </div>
+        <div id="turnstile-signup" style="margin: 8px 0;"></div>
         <button type="submit" id="gate-signup-btn" class="btn btn-primary" style="width: 100%; padding: 8px; margin-top: 8px;">
           Create Account
         </button>
@@ -488,6 +491,13 @@
             
             <iframe id="stage-sandbox-frame" class="portfolio-custom-sandbox" sandbox="allow-scripts" allow="autoplay" style="position:absolute;inset:0;width:100%;height:100%;border:none;z-index:2;"></iframe>
 
+            <div id="stage-sandbox-timeout" style="display:none;position:absolute;inset:0;z-index:2;align-items:center;justify-content:center;text-align:center;padding:16px;pointer-events:none;">
+              <div style="background:rgba(0,0,0,0.6);border-radius:8px;padding:10px 16px;font-size:12.5px;color:var(--text-muted);">
+                <i class="fa-solid fa-triangle-exclamation" style="color:#ffcc66;margin-right:6px;"></i>
+                This portfolio's custom code stopped responding and was stopped.
+              </div>
+            </div>
+
             
             <div class="portfolio-clean-card" id="studio-card" style="left: 50%; top: 50%;">
               <div class="portfolio-avatar-container" id="stage-avatar-container" title="Change picture">
@@ -716,7 +726,7 @@
 
       <div class="form-group">
         <label>Title</label>
-        <input type="text" id="new-post-title" class="form-control" placeholder="Discussion title (e.g., How to detect block break event)">
+        <input type="text" id="new-post-title" class="form-control" maxlength="150" placeholder="Discussion title (e.g., How to detect block break event)">
       </div>
 
       <div class="form-group">
@@ -733,7 +743,7 @@
 
       <div class="form-group">
         <label>Content (Auto-detects code snippets)</label>
-        <textarea id="new-post-content" class="form-control form-textarea" style="min-height: 120px;" placeholder="Describe your question or paste your code snippet..."></textarea>
+        <textarea id="new-post-content" class="form-control form-textarea" style="min-height: 120px;" maxlength="5000" placeholder="Describe your question or paste your code snippet..."></textarea>
       </div>
 
       <div class="form-group">
@@ -782,12 +792,12 @@
 
       <div class="form-group">
         <label>Title</label>
-        <input type="text" id="upload-code-title" class="form-control" placeholder="e.g. PvP Kill Streak Tracker">
+        <input type="text" id="upload-code-title" class="form-control" maxlength="150" placeholder="e.g. PvP Kill Streak Tracker">
       </div>
 
       <div class="form-group">
         <label>Description</label>
-        <textarea id="upload-code-description" class="form-control form-textarea" style="min-height: 70px;" placeholder="What does this script do? Who is it for?"></textarea>
+        <textarea id="upload-code-description" class="form-control form-textarea" style="min-height: 70px;" maxlength="1000" placeholder="What does this script do? Who is it for?"></textarea>
       </div>
 
       <div class="form-group">

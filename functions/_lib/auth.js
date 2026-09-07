@@ -59,6 +59,12 @@ export async function verifySession(token, secret) {
 export function sessionCookie(token) {
   return `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
 }
+export function oauthStateCookie(state) {
+  return `oauth_state=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`;
+}
+export function clearOauthStateCookie() {
+  return `oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+}
 export function clearCookie() {
   return `session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }

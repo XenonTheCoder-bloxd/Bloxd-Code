@@ -104,7 +104,7 @@
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <span class="nav-badge">${(p.category || "GENERAL").toUpperCase()}</span>
+            <span class="nav-badge">${escapeHtml((p.category || "GENERAL").toUpperCase())}</span>
             ${canDelete ? `<button type="button" data-delete-post title="Delete" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:13px;padding:2px 4px;"><i class="fa-solid fa-trash"></i></button>` : ""}
           </div>
         </div>

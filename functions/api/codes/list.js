@@ -19,21 +19,29 @@ export async function onRequestGet({ env }) {
 
 export async function onRequestPost({ request, env }) {
   const { verifySession, readCookie } = await import("../../_lib/auth.js");
+  const { checkRateLimit, rateLimitResponse } = await import("../../_lib/ratelimit.js");
+  const { getModerationStatus } = await import("../../_lib/moderation.js");
+  const { validateCodeEntry } = await import("../../_lib/content.js");
   const session = await verifySession(readCookie(request, "session"), env.SESSION_SECRET);
   if (!session) {
     return Response.json({ error: "You must be logged in to upload code." }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const title = (body.title || "").trim();
-  const description = (body.description || "").trim();
-  const category = (body.category || "misc").trim();
-  const code = body.code || "";
-  const imageKey = body.imageKey || null;
-
-  if (!title || !code) {
-    return Response.json({ error: "Title and code are required." }, { status: 400 });
+  const mod = await getModerationStatus(env, session.uid);
+  if (mod.banned || mod.muted) {
+    return Response.json({ error: "You're not able to post right now." }, { status: 403 });
   }
+
+  const allowed = await checkRateLimit(env.RATE_LIMIT_KV, `rl:codes-create:${session.uid}`, 5, 60);
+  if (!allowed) return rateLimitResponse();
+
+  const body = await request.json().catch(() => ({}));
+  const validated = validateCodeEntry(body);
+  if (validated.error) {
+    return Response.json({ error: validated.error }, { status: 400 });
+  }
+  const { title, description, category, code } = validated;
+  const imageKey = body.imageKey || null;
 
   const now = Date.now();
   const result = await env.DB.prepare(

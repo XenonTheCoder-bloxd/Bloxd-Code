@@ -17,22 +17,32 @@ export async function onRequestGet({ env }) {
   return Response.json({ posts });
 }
 
+import { verifySession, readCookie } from "../../_lib/auth.js";
+import { checkRateLimit, rateLimitResponse } from "../../_lib/ratelimit.js";
+import { getModerationStatus } from "../../_lib/moderation.js";
+import { validateForumPost } from "../../_lib/content.js";
+
 export async function onRequestPost({ request, env }) {
-  const { verifySession, readCookie } = await import("../../_lib/auth.js");
   const session = await verifySession(readCookie(request, "session"), env.SESSION_SECRET);
   if (!session) {
     return Response.json({ error: "You must be logged in to post." }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const title = (body.title || "").trim();
-  const category = (body.category || "questions").trim();
-  const content = (body.content || "").trim();
-  const mediaKey = body.mediaKey || null;
-
-  if (!title || !content) {
-    return Response.json({ error: "Title and content are required." }, { status: 400 });
+  const mod = await getModerationStatus(env, session.uid);
+  if (mod.banned || mod.muted) {
+    return Response.json({ error: "You're not able to post right now." }, { status: 403 });
   }
+
+  const allowed = await checkRateLimit(env.RATE_LIMIT_KV, `rl:forum-post:${session.uid}`, 5, 60);
+  if (!allowed) return rateLimitResponse();
+
+  const body = await request.json().catch(() => ({}));
+  const validated = validateForumPost(body);
+  if (validated.error) {
+    return Response.json({ error: validated.error }, { status: 400 });
+  }
+  const { title, category, content } = validated;
+  const mediaKey = body.mediaKey || null;
 
   const now = Date.now();
   const result = await env.DB.prepare(
