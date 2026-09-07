@@ -150,6 +150,17 @@ input, textarea, select, pre, code, [contenteditable="true"] {
   padding: 20px;
 }
 
+#reset-password-screen {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 15, 15, 0.96);
+  backdrop-filter: blur(10px);
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+  padding: 20px;
+}
+
 #auth-gate-screen.hidden {
   display: none !important;
 }
